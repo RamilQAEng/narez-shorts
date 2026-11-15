@@ -2537,9 +2537,6 @@ if __name__ == '__main__':
                         help="Output aspect: vertical/auto (9:16), horizontal (keep 16:9), square (1:1).")
     parser.add_argument('--transcript', type=str,
                         help="Path to a precomputed transcript JSON (transcribe_media shape); skips transcription.")
-    parser.add_argument('--prepare-only', action='store_true',
-                        help="Fetch the source (download, cut to the paid minutes), print "
-                             "SOURCE_READY <path> and exit: a remote worker renders it.")
 
     parser.add_argument('--transcribe-only', action='store_true',
                         help="Download/transcribe, save <output>/transcript.json and exit "
@@ -2617,7 +2614,7 @@ if __name__ == '__main__':
     # without TWITCH_CLIENT_ID). A URL call, so it runs before the download and
     # the early pick below gets it too.
     viewer_clips = []
-    if args.url and not args.skip_analysis and not args.prepare_only:
+    if args.url and not args.skip_analysis:
         viewer_clips = twitch_signals.viewer_clips_for_job(args.url, 0)
 
     # 1. Get Input Video
@@ -2671,7 +2668,6 @@ if __name__ == '__main__':
                              daemon=True).start()
 
         use_early = (not args.skip_analysis and not args.transcript
-                     and not args.prepare_only
                      and not args.clips and not args.transcribe_only
                      and os.environ.get("AGENT_CLIPS") != "1"
                      and os.environ.get("EARLY_AUDIO", "1").strip() != "0"
@@ -2719,12 +2715,6 @@ if __name__ == '__main__':
         if _stamp(input_video) != _before and globals().get("early") is not None:
             early["invalid"] = True  # its words cover the part that was cut off
 
-    if args.prepare_only:
-        # The source is on disk as every later stage must see it (downloaded,
-        # cut to what was reserved). A remote worker takes it from here
-        # (remote_worker.py); the marker is consumed by app.py.
-        print(f"SOURCE_READY {input_video}", flush=True)
-        sys.exit(0)
 
     # Layout choice is per SOURCE video, not per clip: one upload and one call
     # instead of one per clip, and the answer is a property of the material
