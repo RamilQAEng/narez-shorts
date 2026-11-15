@@ -199,7 +199,7 @@ class TestEncodeScenes:
 
     def _encode(self, tmp_path):
         specs = _scene() * 3
-        reframe_v2.encode_scenes("clip.mp4", specs, W, H, OW, OH, 30, str(tmp_path), None,
+        reframe_v2.encode_scenes("clip.mp4", specs, W, H, OW, OH, 30, str(tmp_path),
                                  str(tmp_path / "final.mp4"))
 
     def test_gpu_render_replaces_the_segments(self, monkeypatch, tmp_path):

@@ -483,8 +483,7 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
 
 
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
-                      also=None, font=None, layout_ranges=None, has_captions=True,
-                      mark=None):
+                      also=None, font=None, layout_ranges=None, has_captions=True):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
@@ -502,10 +501,6 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
       re-captioned, so with ``also`` that file is not encoded: a recipe
       (overlay image + position) is kept instead and ``materialize`` encodes
       it the first time it is asked for (``HOOK_LAZY=0``: encode it here).
-    mark: optional (logo_path, make_filter, path), only with ``also``: ALSO
-      write ``path`` = the captioned picture with the free-plan mark, from the
-      same decode (the served ``wm_`` copy, see main.mark_delivery).
-      ``make_filter(vw, vh, video=, logo=, out=)`` is main.watermark_filter.
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video {video_path} not found")
@@ -572,24 +567,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         tail = _encode_tail()
         lazy = also is not None and LAZY
         hooked_out = [] if lazy else ['-map', '[h]', '-map', '0:a?', *tail, output_path]
-        if also and mark:
-            extra_vf, extra_path = also
-            logo_path, make_filter, mark_path = mark
-            marked = make_filter(video_width, video_height, video="[sm]",
-                                 logo="[2:v]", out="[m]")
-            graph = (f"{overlay},{extra_vf},split=2[s][sm];{marked}" if lazy else
-                     f"{overlay},split=2[h][c];[c]{extra_vf},split=2[s][sm];{marked}")
-            ffmpeg_cmd = [
-                'ffmpeg', '-y',
-                '-i', video_path,
-                '-i', img_path,
-                '-i', logo_path,
-                '-filter_complex', graph,
-                *hooked_out,
-                '-map', '[s]', '-map', '0:a?', *tail, extra_path,
-                '-map', '[m]', '-map', '0:a?', *tail, mark_path,
-            ]
-        elif also:
+        if also:
             extra_vf, extra_path = also
             graph = (f"{overlay},{extra_vf}[s]" if lazy else
                      f"{overlay},split=2[h][c];[c]{extra_vf}[s]")
@@ -607,8 +585,6 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         outputs = [] if lazy else [output_path]
         if also:
             outputs.append(also[1])
-            if mark:
-                outputs.append(mark[2])
         result = _run_encode(ffmpeg_cmd, video_path, outputs)
         if result.returncode != 0 and not finished_before_crash(result, outputs):
             raise subprocess.CalledProcessError(result.returncode, ffmpeg_cmd,

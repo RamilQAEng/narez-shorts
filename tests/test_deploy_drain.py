@@ -33,8 +33,7 @@ def out(tmp_path, monkeypatch):
 def _manifest(out, job_id, **extra):
     d = out / job_id
     d.mkdir(exist_ok=True)
-    m = {"cmd": ["python", "main.py"], "priority": 2, "user_id": None,
-         "reservation_id": f"res-{job_id}", "watermark": False, "attempts": 0}
+    m = {"cmd": ["python", "main.py"], "attempts": 0}
     m.update(extra)
     (d / app_module._RESUME_FILE).write_text(json.dumps(m))
     return d
@@ -66,19 +65,17 @@ class TestHeartbeat:
 
 
 class TestResumeScan:
-    def test_busy_elsewhere_is_skipped_but_reservation_kept(self, out):
+    def test_busy_elsewhere_is_skipped(self, out):
         _manifest(out, "j1", instance="other", heartbeat=time.time())
-        keep = app_module._resume_interrupted_jobs()
+        app_module._resume_interrupted_jobs()
         assert "j1" not in app_module.jobs
-        assert keep == {"res-j1"}, "the other instance's job must not be refunded as an orphan"
 
     def test_stale_and_never_started_are_resumed(self, out):
         _manifest(out, "stale", instance="other", heartbeat=time.time() - 600)
         _manifest(out, "queued")
-        keep = app_module._resume_interrupted_jobs()
+        app_module._resume_interrupted_jobs()
         assert app_module.jobs["stale"]["status"] == "queued"
         assert app_module.jobs["queued"]["status"] == "queued"
-        assert keep == {"res-stale", "res-queued"}
         assert app_module._read_manifest("stale")["attempts"] == 1
 
     def test_a_job_we_already_hold_is_not_enqueued_twice(self, out):
@@ -88,12 +85,11 @@ class TestResumeScan:
         assert app_module.job_queue.qsize() == 0
         assert app_module._read_manifest("j1")["attempts"] == 0
 
-    def test_poison_job_is_dropped_and_refundable(self, out):
+    def test_poison_job_is_dropped(self, out):
         _manifest(out, "bad", attempts=app_module.MAX_RESUME_ATTEMPTS,
                   instance="other", heartbeat=time.time() - 600)   # it was running
-        keep = app_module._resume_interrupted_jobs()
+        app_module._resume_interrupted_jobs()
         assert "bad" not in app_module.jobs
-        assert keep == set()
         assert app_module._read_manifest("bad") is None
 
 
@@ -107,15 +103,14 @@ class TestQueuedVideosSurviveDeploys:
         for _ in range(app_module.MAX_RESUME_ATTEMPTS + 3):
             monkeypatch.setattr(app_module, "job_queue", asyncio.PriorityQueue())
             app_module.jobs.clear()
-            keep = app_module._resume_interrupted_jobs()
-            assert keep == {"res-waiting"}
+            app_module._resume_interrupted_jobs()
             assert app_module.jobs["waiting"]["status"] == "queued"
         assert app_module._read_manifest("waiting")["attempts"] == 0
 
     def test_manifest_already_at_the_limit_but_never_run_is_resumed(self, out):
         # What production had: attempts used up by deploys alone, no heartbeat.
         _manifest(out, "w", attempts=app_module.MAX_RESUME_ATTEMPTS)
-        assert app_module._resume_interrupted_jobs() == {"res-w"}
+        app_module._resume_interrupted_jobs()
         assert app_module.jobs["w"]["status"] == "queued"
 
     def test_a_run_that_keeps_dying_is_still_dropped(self, out, monkeypatch):

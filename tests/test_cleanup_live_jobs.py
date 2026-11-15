@@ -4,10 +4,8 @@
 age-only sweep removed their dir (and source upload) under the worker. The
 user got no clips and the minute reservation stayed held for 3 hours.
 """
-import asyncio
 import os
 import time
-import types
 
 import pytest
 
@@ -24,7 +22,6 @@ def disk(tmp_path, monkeypatch):
     up.mkdir()
     monkeypatch.setattr(app_module, "OUTPUT_DIR", str(out))
     monkeypatch.setattr(app_module, "UPLOAD_DIR", str(up))
-    monkeypatch.setattr(app_module, "THUMBNAILS_DIR", str(out / "thumbnails"))
     monkeypatch.setattr(app_module, "JOB_RETENTION_SECONDS", 3600)
     monkeypatch.setattr(app_module, "_running_jobs", set())
     monkeypatch.setattr(app_module, "jobs", {})
@@ -128,24 +125,3 @@ class TestUploadSweep:
         monkeypatch.setattr(app_module, "UPLOADS_MAX_GB", 1 / 1024 ** 3)
         app_module._enforce_uploads_size_cap()
         assert live.exists() and not dead.exists()
-
-
-class TestSettleWithoutEntry:
-    def test_reservation_released_when_entry_vanished(self, monkeypatch):
-        calls = []
-
-        class FakeMetering:
-            @staticmethod
-            async def commit_reservation(rid):
-                calls.append(("commit", rid))
-
-            @staticmethod
-            async def release_reservation(rid):
-                calls.append(("release", rid))
-
-        monkeypatch.setattr(app_module, "BILLING_ENABLED", True)
-        monkeypatch.setattr(app_module, "cloud", types.SimpleNamespace(metering=FakeMetering), raising=False)
-        monkeypatch.setattr(app_module, "jobs", {})
-        job = {"status": "processing", "reservation_id": "res-1"}
-        asyncio.run(app_module._settle_reservation("gone", job))
-        assert calls == [("release", "res-1")]

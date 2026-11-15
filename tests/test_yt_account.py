@@ -273,7 +273,7 @@ def api(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(m, "OUTPUT_DIR", "output")
     for name, value in (("_draining", False), ("jobs", {}), ("_running_jobs", set()),
-                        ("_remote_jobs", set()), ("AUTO_RETRY_DELAY_SECONDS", 30.0),
+                        ("AUTO_RETRY_DELAY_SECONDS", 30.0),
                         ("job_queue", asyncio.PriorityQueue())):
         monkeypatch.setattr(m, name, value)
     return m

@@ -24,35 +24,26 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "_running_jobs", set())
     monkeypatch.setattr(app_module, "jobs", {})
     monkeypatch.setattr(app_module, "AUTO_RETRY_DELAY_SECONDS", 0)
-    calls = {"settled": [], "enqueued": []}
+    calls = {"enqueued": []}
 
-    async def fake_settle(job_id, job=None):
-        calls["settled"].append(job_id)
-    for name in ("_archive_managed_job", "_notify_job_webhook", "_record_job_alert",
-                 "_track_proxy_usage", "_notify_clips_ready", "_notify_clip_activity"):
-        async def _noop(*a, **k):
-            return None
-        monkeypatch.setattr(app_module, name, _noop)
-
-    async def _noop2(*a, **k):
+    async def _noop(*a, **k):
         return None
-    monkeypatch.setattr(app_module, "_autopilot_job_finished", _noop2)
-    monkeypatch.setattr(app_module, "_settle_reservation", fake_settle)
+    monkeypatch.setattr(app_module, "_notify_job_webhook", _noop)
     monkeypatch.setattr(app_module, "_enqueue_job",
-                        lambda job_id, priority=2: calls["enqueued"].append((job_id, priority)))
+                        lambda job_id: calls["enqueued"].append(job_id))
     return root, calls
 
 
 def _job(root, job_id, logs):
     d = root / job_id
     d.mkdir()
-    (d / app_module._RESUME_FILE).write_text(json.dumps({"cmd": ["x"], "priority": 1}))
+    (d / app_module._RESUME_FILE).write_text(json.dumps({"cmd": ["x"]}))
     (d / "My_Video.mp4").write_bytes(b"src")
     (d / ".transcript_checkpoint.json").write_text("{}")
     (d / "My_Video_metadata.json").write_text("{}")
     (d / "My_Video_clip_1.mp4").write_bytes(b"half")
     job = {"status": "queued", "logs": list(logs), "cmd": ["x"], "env": {},
-           "output_dir": str(d), "user_id": "u", "reservation_id": "r"}
+           "output_dir": str(d)}
     app_module.jobs[job_id] = job
     return d, job
 
@@ -107,8 +98,7 @@ class TestWrapper:
         d, job = _job(root, "j1", ["❌ CUDA out of memory"])
         sem = _run_wrapper(monkeypatch, "j1", "failed")
         assert job["status"] == "queued" and job["auto_retries"] == 1
-        assert calls["enqueued"] == [("j1", 1)]
-        assert calls["settled"] == []                         # reservation kept
+        assert calls["enqueued"] == ["j1"]
         assert (d / app_module._RESUME_FILE).exists()         # still resumable
         assert (d / "My_Video.mp4").exists() and (d / ".transcript_checkpoint.json").exists()
         assert not (d / "My_Video_clip_1.mp4").exists()
@@ -121,7 +111,7 @@ class TestWrapper:
         job["auto_retries"] = 1
         _run_wrapper(monkeypatch, "j2", "failed")
         assert job["status"] == "failed"
-        assert calls["settled"] == ["j2"] and calls["enqueued"] == []
+        assert calls["enqueued"] == []
         assert not (d / app_module._RESUME_FILE).exists()
 
     def test_content_failure_is_not_retried(self, env, monkeypatch):
@@ -134,7 +124,6 @@ class TestWrapper:
         root, calls = env
         d, job = _job(root, "j4", [])
         sem = _run_wrapper(monkeypatch, "j4", None, raise_cancel=True)
-        assert calls["settled"] == []                         # no refund, no failure
         assert (d / app_module._RESUME_FILE).exists()
         assert sem._value == 1
 
@@ -145,13 +134,13 @@ class TestResumeMidRender:
         d = root / "j5"
         d.mkdir()
         (d / app_module._RESUME_FILE).write_text(json.dumps(
-            {"cmd": ["python", "main.py"], "priority": 1, "attempts": 0}))
+            {"cmd": ["python", "main.py"], "attempts": 0}))
         (d / "V_metadata.json").write_text(json.dumps({"shorts": [{}]}))
         app_module._recover_jobs_from_disk()
         assert "j5" not in app_module.jobs                    # not "completed"
         app_module._resume_interrupted_jobs()
         assert app_module.jobs["j5"]["status"] == "queued"
-        assert calls["enqueued"] == [("j5", 1)]
+        assert calls["enqueued"] == ["j5"]
 
 
 class TestQueueEstimate:

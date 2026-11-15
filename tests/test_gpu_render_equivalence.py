@@ -158,22 +158,3 @@ def test_scenes_concatenate_like_segments(source, tmp_path):
     assert gpu_render.render(source, scenes, W, H, OW, OH, FPS, got)
     assert _frames(got) == _frames(ref)
     assert _ssim(got, ref) >= MIN_SSIM
-
-
-def test_watermark_overlay_matches_ffmpeg(source, tmp_path):
-    import main as m
-    logo = tmp_path / "logo.png"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                    "color=c=white:s=600x180,format=rgba", "-frames:v", "1", str(logo)], check=True)
-    graph = _graphs()["general"]
-    ref, got = str(tmp_path / "ref.mp4"), str(tmp_path / "got.mp4")
-    full = graph + ";" + m.watermark_filter(OW, OH, video="[v]", out="[vw]")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", source, "-i", str(logo),
-                    "-filter_complex", full, "-map", "[vw]", *_NVENC_ARGS[QUALITY_FAST],
-                    "-an", ref], check=True)
-    mark = {"path": str(logo), "x": int(OW * m.WATERMARK_MARGIN_RATIO),
-            "y": int(OH * m.WATERMARK_Y_RATIO),
-            "w": max(80, int(OW * m.WATERMARK_WIDTH_RATIO)), "opacity": m.WATERMARK_OPACITY}
-    assert gpu_render.render(source, [(0.0, DUR, graph, None)], W, H, OW, OH, FPS, got,
-                             overlay=mark)
-    assert _ssim(got, ref) >= MIN_SSIM

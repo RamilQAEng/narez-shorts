@@ -1299,7 +1299,7 @@ def finalize_clip_passthrough(input_video, final_output_video):
 
 
 def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=None,
-                      plan_only=False, mark=False):
+                      plan_only=False):
     """Burn the default caption style onto a finished clip.
 
     ``split_ranges``: (start, end) stretches, in clip seconds, rendered with
@@ -1322,9 +1322,6 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
 
     ``plan_only`` writes the .ass but burns nothing: returns (vf,
     generation_id) for auto_hook_clip to burn in the same pass as the hook.
-
-    ``mark`` (free plan): the same ffmpeg also writes the served ``wm_`` copy
-    of the captioned file, so mark_delivery finds it made.
     """
     if os.environ.get("AUTO_CAPTIONS", "1").strip() == "0":
         return None
@@ -1387,22 +1384,11 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
                 font_name=style["font_name"], font_color=style["font_color"],
                 border_color=style["border_color"], border_width=style["border_width"])
             return vf, generation_id
-        marked = None
-        if mark and os.path.exists(watermark_logo_path()):
-            import watermarked
-            marked = (watermark_logo_path(), watermark_filter,
-                      os.path.join(output_dir, watermarked.marked_name(out_path)))
-        try:
-            _subs.burn_subtitles(
-                clip_path, ass_path, out_path,
-                alignment=style["alignment"], fontsize=style["font_size"],
-                font_name=style["font_name"], font_color=style["font_color"],
-                border_color=style["border_color"], border_width=style["border_width"],
-                mark=marked)
-        except Exception:
-            if marked and os.path.exists(marked[2]):
-                os.remove(marked[2])  # never serve a half-written wm_ copy
-            raise
+        _subs.burn_subtitles(
+            clip_path, ass_path, out_path,
+            alignment=style["alignment"], fontsize=style["font_size"],
+            font_name=style["font_name"], font_color=style["font_color"],
+            border_color=style["border_color"], border_width=style["border_width"])
         print(f"   💬 Captions burned: {os.path.basename(out_path)}")
         return out_path
     except Exception as e:
@@ -1411,7 +1397,7 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         return None
 
 
-def auto_hook_clip(clip_path, clip, captions=None, mark=False):
+def auto_hook_clip(clip_path, clip, captions=None):
     """Burn the clip's Gemini hook text as a DERIVED file (AUTO_HOOK=1).
 
     Writes ``hooked_<ts>_<clip filename>`` next to the canonical clip, exactly
@@ -1428,11 +1414,7 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
     the captioned ``subtitled_<id>_hooked_...`` file is written by the same
     ffmpeg, from the same decode, and its path lands in hook_config under
     "_captioned" (popped by the caller). If that combined pass fails, the hook
-    is burned alone and the caller captions the way it always did.
-
-    ``mark`` (free plan, only with ``captions``): the same ffmpeg also writes
-    the served ``wm_`` copy of the captioned file, so mark_delivery finds it
-    made instead of decoding the captioned file again for its own pass."""
+    is burned alone and the caller captions the way it always did."""
     text = (clip.get('viral_hook_text') or '').strip()
     if not text:
         return None
@@ -1463,15 +1445,9 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
             vf, generation_id = captions
             captioned = os.path.join(
                 output_dir, f"subtitled_{generation_id}_{os.path.basename(out_path)}")
-            marked = None
-            if mark and os.path.exists(watermark_logo_path()):
-                import watermarked
-                marked = (watermark_logo_path(), watermark_filter,
-                          os.path.join(output_dir, watermarked.marked_name(captioned)))
             try:
                 note(add_hook_to_video(clip_path, text, out_path, duration=seconds,
-                                       style=style, also=(vf, captioned), mark=marked,
-                                       **place))
+                                       style=style, also=(vf, captioned), **place))
                 print(f"   🪝 Hook + 💬 captions burned in one pass ({style}, {seconds:g}s): {text}")
                 return out_path, {**config, "_captioned": captioned}
             except Exception as e:
@@ -1484,10 +1460,9 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
                     detail = f"exit {e.returncode}: {' | '.join(tail)[-300:]}"
                 print(f"   ⚠️ Combined hook+captions pass failed ({detail}) — "
                       f"burning them one at a time.")
-                # Never leave a half-written subtitled_ (or wm_ copy) behind.
-                for partial in (captioned, marked[2] if marked else None):
-                    if partial and os.path.exists(partial):
-                        os.remove(partial)
+                # Never leave a half-written subtitled_ behind.
+                if os.path.exists(captioned):
+                    os.remove(captioned)
         note(add_hook_to_video(clip_path, text, out_path, duration=seconds,
                                style=style, **place))
         print(f"   🪝 Hook burned ({style}, {seconds:g}s): {text}")
@@ -1524,16 +1499,13 @@ def trim_subtitle_band(input_video, band):
 
 
 def render_clip(input_video, final_output_video, output_format="auto",
-                force_strategy=None, crop_overrides=None, watermark=False,
-                subtitle_band=None):
+                force_strategy=None, crop_overrides=None, subtitle_band=None):
     """Route a cut clip through the right renderer for the chosen output format.
     vertical/auto -> 9:16 reframe, square -> 1:1 reframe, horizontal -> keep.
     ``force_strategy`` (e.g. 'WIDE'/'TRACK') pins every scene's layout — the
     clip editor's whole-clip framing override. ``crop_overrides`` positions
     individual scenes by hand (the per-scene reframing editor) and wins over
     ``force_strategy`` for the scenes it names.
-    ``watermark`` burns the free-plan mark into the result: inside the reframe
-    encode on the v2 path, as a separate pass (apply_watermark) otherwise.
     ``subtitle_band`` (the job metadata's ``source_subtitle_band``) trims the
     source's own burned-in subtitles off the bottom first, so our captions are
     the only text layer. Every render from the source passes it: the job, the
@@ -1541,139 +1513,24 @@ def render_clip(input_video, final_output_video, output_format="auto",
     trimmed = trim_subtitle_band(input_video, subtitle_band)
     try:
         return _render_clip(trimmed, final_output_video, output_format,
-                            force_strategy, crop_overrides, watermark)
+                            force_strategy, crop_overrides)
     finally:
         if trimmed != input_video and os.path.exists(trimmed):
             os.remove(trimmed)
 
 
 def _render_clip(input_video, final_output_video, output_format,
-                 force_strategy, crop_overrides, watermark):
+                 force_strategy, crop_overrides):
     if output_format == "horizontal":
-        ok = finalize_clip_passthrough(input_video, final_output_video)
-        if ok and watermark:
-            apply_watermark(final_output_video)
-        return ok
+        return finalize_clip_passthrough(input_video, final_output_video)
     aspect = 1.0 if output_format == "square" else ASPECT_RATIO
     return process_video_to_vertical(input_video, final_output_video, aspect_ratio=aspect,
                                      force_strategy=force_strategy,
-                                     crop_overrides=crop_overrides,
-                                     watermark=watermark)
-
-
-# Watermark geometry, as fractions of the clip width/height.
-#
-# Vertical placement is the whole point: the top and bottom strips of a 9:16
-# clip are either black bars or blurred filler (GENERAL layout), so a mark up
-# there is cropped away without touching a single pixel of real footage. At 40%
-# of the height it sits inside the content band — a 16:9 source letterboxed
-# into 9:16 spans roughly 34%-66% — so removing the mark means cutting into the
-# picture. Left-aligned, like OpusClip's.
-WATERMARK_WIDTH_RATIO = 0.30
-WATERMARK_MARGIN_RATIO = 0.05
-WATERMARK_Y_RATIO = 0.40
-WATERMARK_OPACITY = 0.85
-
-
-def watermark_logo_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "assets", "watermark.png")
-
-
-def watermark_filter(vw, vh, video="[0:v]", logo="[1:v]", out=""):
-    """filter_complex chain overlaying the logo input on a vw x vh video."""
-    wm_w = max(80, int(vw * WATERMARK_WIDTH_RATIO))
-    x = int(vw * WATERMARK_MARGIN_RATIO)
-    y = int(vh * WATERMARK_Y_RATIO)
-    return (
-        f"{logo}scale={wm_w}:-1,format=rgba,"
-        f"colorchannelmixer=aa={WATERMARK_OPACITY}[wm];"
-        f"{video}[wm]overlay=x={x}:y={y}{out}"
-    )
-
-
-def apply_watermark(video_path, output_path=None):
-    """Burn the OpenShorts watermark into a finished clip (free plan).
-
-    One re-encode pass over the final file so every output format (TRACK,
-    GENERAL, horizontal passthrough) gets the mark. In place by default; with
-    ``output_path`` the source stays untouched and the marked copy is written
-    there, which is how the pipeline keeps the clean file next to the served
-    one (see ``mark_delivery``).
-    """
-    logo_path = watermark_logo_path()
-    if not os.path.exists(logo_path):
-        print(f"   ⚠️ Watermark asset missing ({logo_path}); clip kept unmarked.")
-        return False
-
-    # Scale the lockup from the clip's real width: overlay can't read the other
-    # input's size, and computing it here avoids the deprecated scale2ref.
-    try:
-        probe = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
-            stderr=subprocess.STDOUT, timeout=60,
-        ).decode().strip().split("x")
-        vw, vh = int(probe[0]), int(probe[1])
-    except Exception as e:
-        print(f"   ⚠️ Could not probe clip for watermark ({e}); clip kept unmarked.")
-        return False
-
-    filt = watermark_filter(vw, vh)
-    tmp_path = (output_path or video_path) + ".wm.mp4"
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-i", logo_path,
-           "-filter_complex", filt,
-           *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
-           "-movflags", "+faststart", tmp_path]
-    result = gpu_decode.run(
-        lambda on_gpu: gpu_decode.on_card(cmd, video_path) if on_gpu else cmd,
-        lambda c: subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                 timeout=1800),
-        ok=lambda r: r.returncode == 0 and os.path.exists(tmp_path),
-        path=video_path)
-    if result.returncode == 0 and os.path.exists(tmp_path):
-        os.replace(tmp_path, output_path or video_path)
-        return True
-    err = (result.stderr or b"").decode(errors="ignore")[-300:]
-    print(f"   ⚠️ Watermark pass failed (clip kept unmarked): {err}")
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
-    return False
-
-
-def mark_delivery(final_path, marker=None):
-    """The free-plan copy of a finished clip to serve: ``wm_<final>`` next to it.
-
-    The clean ``final_path`` is left as it is. That is the whole point: an
-    upgrade re-points the clip at the clean twin instead of re-running the
-    job (``watermarked`` module). An existing copy is reused, so re-choosing
-    a file the user already had (captions off, hook off) costs no encode.
-
-    Returns the marked path, or ``final_path`` itself when the copy could not
-    be made: the mark must never cost the user the clip (same fail-open rule
-    apply_watermark has always had).
-    """
-    import watermarked
-    out_path = os.path.join(os.path.dirname(final_path),
-                            watermarked.marked_name(final_path))
-    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-        return out_path
-    ok = (marker or apply_watermark)(final_path, out_path)
-    if ok and os.path.exists(out_path):
-        return out_path
-    # Still the wm_ name: the /videos guard refuses the clean deliverables of
-    # a free job, so serving the clean name here would be a clip the user
-    # cannot play. The copy simply carries no mark.
-    print(f"   ⚠️ Serving {os.path.basename(final_path)} unmarked (copy).")
-    try:
-        shutil.copyfile(final_path, out_path)
-        return out_path
-    except OSError:
-        return final_path
+                                     crop_overrides=crop_overrides)
 
 
 def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPECT_RATIO,
-                              force_strategy=None, crop_overrides=None, watermark=False):
+                              force_strategy=None, crop_overrides=None):
     """
     Core logic to reframe a horizontal video to a target aspect ratio using
     scene detection and Active Speaker Tracking (MediaPipe).
@@ -1690,8 +1547,7 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
             t0 = time.time()
             result = reframe_v2.render(input_video, final_output_video, aspect_ratio,
                                        force_strategy=force_strategy,
-                                       crop_overrides=crop_overrides,
-                                       watermark=watermark)
+                                       crop_overrides=crop_overrides)
             print(f"   ⏱️ Reframe v2 total: {time.time() - t0:.1f}s")
             return result
         except Exception as e:
@@ -1886,8 +1742,6 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
         if os.path.exists(leftover):
             os.remove(leftover)
 
-    if watermark:
-        apply_watermark(final_output_video)
     return True
 
 # --- Transcript checkpoint (survive a redeploy without paying twice) ---------
@@ -2537,9 +2391,6 @@ if __name__ == '__main__':
                         help="Output aspect: vertical/auto (9:16), horizontal (keep 16:9), square (1:1).")
     parser.add_argument('--transcript', type=str,
                         help="Path to a precomputed transcript JSON (transcribe_media shape); skips transcription.")
-    parser.add_argument('--prepare-only', action='store_true',
-                        help="Fetch the source (download, cut to the paid minutes), print "
-                             "SOURCE_READY <path> and exit: a remote worker renders it.")
 
     parser.add_argument('--transcribe-only', action='store_true',
                         help="Download/transcribe, save <output>/transcript.json and exit "
@@ -2617,7 +2468,7 @@ if __name__ == '__main__':
     # without TWITCH_CLIENT_ID). A URL call, so it runs before the download and
     # the early pick below gets it too.
     viewer_clips = []
-    if args.url and not args.skip_analysis and not args.prepare_only:
+    if args.url and not args.skip_analysis:
         viewer_clips = twitch_signals.viewer_clips_for_job(args.url, 0)
 
     # 1. Get Input Video
@@ -2671,7 +2522,6 @@ if __name__ == '__main__':
                              daemon=True).start()
 
         use_early = (not args.skip_analysis and not args.transcript
-                     and not args.prepare_only
                      and not args.clips and not args.transcribe_only
                      and os.environ.get("AGENT_CLIPS") != "1"
                      and os.environ.get("EARLY_AUDIO", "1").strip() != "0"
@@ -2719,12 +2569,6 @@ if __name__ == '__main__':
         if _stamp(input_video) != _before and globals().get("early") is not None:
             early["invalid"] = True  # its words cover the part that was cut off
 
-    if args.prepare_only:
-        # The source is on disk as every later stage must see it (downloaded,
-        # cut to what was reserved). A remote worker takes it from here
-        # (remote_worker.py); the marker is consumed by app.py.
-        print(f"SOURCE_READY {input_video}", flush=True)
-        sys.exit(0)
 
     # Layout choice is per SOURCE video, not per clip: one upload and one call
     # instead of one per clip, and the answer is a property of the material
@@ -2923,12 +2767,8 @@ if __name__ == '__main__':
 
                     # Layer order: the canonical reframe stays CLEAN, the hook
                     # is a derived hooked_ file, captions go last on top of
-                    # whichever is current, and on the free plan the served
-                    # file is a wm_ copy of that final (mark_delivery). The
-                    # mark used to ride the reframe encode, which made it
-                    # permanent: paying could not remove it from clips already
-                    # made. Each worker writes only its own clip dict, so the
-                    # re-dump after the pool is race-free.
+                    # whichever is current. Each worker writes only its own
+                    # clip dict, so the re-dump after the pool is race-free.
                     project = projects.get(os.environ.get("PROJECT_ID"))
                     success = project and project_layout.render(
                         clip_temp_path, clip_final_path, project, clip.get('zoom_moments'), start, end)
@@ -2956,8 +2796,7 @@ if __name__ == '__main__':
                         if (clip.get('viral_hook_text') or '').strip():
                             plan = auto_caption_clip(clip_final_path, transcript, start, end,
                                                      split_ranges=split_ranges, plan_only=True)
-                        hooked = auto_hook_clip(clip_final_path, clip, captions=plan,
-                                                mark=os.environ.get("WATERMARK") == "1")
+                        hooked = auto_hook_clip(clip_final_path, clip, captions=plan)
                         if hooked:
                             deliver_path, clip['auto_hook'] = hooked
                             captioned = clip['auto_hook'].pop("_captioned", None)
@@ -2965,20 +2804,17 @@ if __name__ == '__main__':
                         if not captioned:
                             captioned = auto_caption_clip(
                                 deliver_path, transcript, start, end,
-                                split_ranges=split_ranges,
-                                mark=os.environ.get("WATERMARK") == "1")
+                                split_ranges=split_ranges)
                         served = captioned or deliver_path
                         served = brand_banner.apply_to_clip(served, os.environ.get("BANNER_ID"),
                                                             os.environ.get("BANNER_POSITION"))
-                        if os.environ.get("WATERMARK") == "1":
-                            served = mark_delivery(served)
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")
                         # Hand the API the file to actually serve for this clip.
                         # Without it the status poller guesses the clean reframe
                         # name, so a job in flight showed every clip stripped of
                         # its hook and captions until the WHOLE job finished and
                         # the result got rebuilt through _canonical_clip_file.
-                        # Printed only after the full chain (reframe, watermark,
+                        # Printed only after the full chain (reframe,
                         # hook, captions) so the file is complete when it is
                         # announced, never one that ffmpeg is still writing.
                         print(f"CLIP_READY {i} {os.path.basename(served)}")
@@ -2993,11 +2829,6 @@ if __name__ == '__main__':
             clip_workers = max(int(os.environ.get("CLIP_WORKERS", "6")), 1)
             shorts = clips_data['shorts']
             failed = []
-            if os.environ.get("WATERMARK") == "1":
-                # Tells the /videos guard that the clean twins in this
-                # directory are not for serving (watermarked.MARKER_FILE).
-                import watermarked
-                watermarked.mark_job(output_dir)
             with ThreadPoolExecutor(max_workers=min(clip_workers, len(shorts))) as pool:
                 # Best clip first: the pool starts work in submission order, so
                 # the user's first delivered clip is the strongest one instead

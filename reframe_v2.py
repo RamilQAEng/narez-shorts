@@ -584,38 +584,23 @@ def screen_ranges(input_video, scenes, fps, strategies):
 
 
 def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
-                  workdir, logo, final_output_video):
+                  workdir, final_output_video):
     """Encode the scene specs into ``final_output_video`` with the clip's audio.
 
     The whole clip in one pass on the card when it can (gpu_render);
     otherwise one ffmpeg per scene and a concat, as always."""
-    if logo:
-        import main as m
-
     video_in = None
     if gpu_render.usable(input_video):
         gpu_out = os.path.join(workdir, "gpu.mp4")
-        mark = None
-        if logo:
-            mark = {"path": logo,
-                    "x": int(out_w * m.WATERMARK_MARGIN_RATIO),
-                    "y": int(out_h * m.WATERMARK_Y_RATIO),
-                    "w": max(80, int(out_w * m.WATERMARK_WIDTH_RATIO)),
-                    "opacity": m.WATERMARK_OPACITY}
         if gpu_render.render(input_video, specs, orig_w, orig_h, out_w, out_h,
-                             fps, gpu_out, overlay=mark):
+                             fps, gpu_out):
             video_in = ["-i", gpu_out]
 
     if video_in is None:
         segments = []
         for idx, (ss, dur, graph, _boxes) in enumerate(specs):
             seg_path = os.path.join(workdir, f"seg_{idx:03d}.mp4")
-            extra, out_label = [], "[v]"
-            if logo:
-                extra = ["-i", logo]
-                graph += ";" + m.watermark_filter(out_w, out_h, video="[v]", out="[vw]")
-                out_label = "[vw]"
-            _run_segment(input_video, ss, dur, extra, graph, out_label, seg_path)
+            _run_segment(input_video, ss, dur, [], graph, "[v]", seg_path)
             segments.append(seg_path)
 
         list_path = os.path.join(workdir, "concat.txt")
@@ -640,7 +625,7 @@ def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
 
 
 def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
-           force_strategy=None, crop_overrides=None, watermark=False):
+           force_strategy=None, crop_overrides=None):
     """Full v2 reframe of one clip. Raises on failure (caller falls back).
 
     ``content_ranges`` pins which stretches (in this clip's timeline) show a
@@ -657,10 +642,6 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     listed keep the automatic camera, so correcting one bad shot never disturbs
     the ones the tracker got right. Applied AFTER force_strategy: a per-scene
     hand position always beats the whole-clip choice for the scenes it names.
-
-    ``watermark`` overlays the free-plan mark (main.watermark_filter) in every
-    segment's own encode, instead of main.apply_watermark re-encoding the
-    finished clip once more.
     """
     import main as m
     content_ranges = content_ranges or []
@@ -851,11 +832,6 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     ranges = scene_frame_ranges(scene_boundaries, strategies, len(xs))
     if not ranges:
         raise RuntimeError("no usable scene ranges")
-    logo = m.watermark_logo_path() if watermark else None
-    if logo and not os.path.exists(logo):
-        print(f"   ⚠️ Watermark asset missing ({logo}); clip kept unmarked.")
-        logo = None
-
     workdir = tempfile.mkdtemp(prefix="reframe_v2_")
     try:
         # One spec per scene: (ss, dur, graph, crop boxes). TRACK scenes carry
@@ -922,7 +898,7 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             specs.append((ss, dur, graph, boxes))
 
         encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
-                      workdir, logo, final_output_video)
+                      workdir, final_output_video)
     finally:
         import shutil
         shutil.rmtree(workdir, ignore_errors=True)
