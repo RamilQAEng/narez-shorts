@@ -30,7 +30,6 @@ def test_same_second_downloads_get_separate_zips(tmp_path, monkeypatch):
     job_id = "job-zip"
     out = _make_job(tmp_path, job_id)
     monkeypatch.setattr(app, "OUTPUT_DIR", str(tmp_path))
-    monkeypatch.setattr(app, "_ensure_job_files", _no_files)
     monkeypatch.setattr(app.time, "time", lambda: 1_700_000_000.0)
 
     async def both():

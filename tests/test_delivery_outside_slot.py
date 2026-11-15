@@ -1,8 +1,8 @@
 """Delivery outside the GPU slot.
 
 Once main.py exits, the GPU slot goes to the next job and the delivery
-(settle, R2 archive, unmark, webhook, emails) runs after it. The user must not
-see the job finished before its clips are archived and unmarked; a deploy must
+(the webhook) runs after it. The user must not see the job finished before
+the delivery has started; a deploy must
 never lose a delivery, nor render the video again, nor deliver it twice.
 """
 import asyncio
@@ -39,12 +39,7 @@ def env(tmp_path, monkeypatch):
                 await hooks[name](job_id)
         return step
 
-    for attr, name in (("_settle_reservation", "settle"), ("_archive_managed_job", "archive"),
-                       ("_unmark_if_owner_paid", "unmark"),
-                       ("_autopilot_job_finished", "autopilot"),
-                       ("_notify_job_webhook", "webhook"), ("_record_job_alert", "alert"),
-                       ("_track_proxy_usage", "proxy"), ("_notify_clips_ready", "email"),
-                       ("_notify_clip_activity", "activity")):
+    for attr, name in (("_delivery_ready", "ready"), ("_notify_job_webhook", "webhook")):
         monkeypatch.setattr(app_module, attr, fake(name))
     return root, calls, hooks
 
@@ -53,13 +48,12 @@ def _job(root, job_id, rendered=True):
     d = root / job_id
     d.mkdir()
     (d / app_module._RESUME_FILE).write_text(json.dumps(
-        {"cmd": ["python", "main.py"], "priority": 2, "user_id": "u",
-         "reservation_id": f"res-{job_id}", "watermark": False, "attempts": 0}))
+        {"cmd": ["python", "main.py"], "attempts": 0}))
     (d / "V_metadata.json").write_text(json.dumps({"shorts": [{"title": "a"}]}))
     if rendered:
         (d / "V_clip_1.mp4").write_bytes(b"clip")
     job = {"status": "queued", "logs": [], "cmd": ["x"], "env": {},
-           "output_dir": str(d), "user_id": "u", "reservation_id": f"res-{job_id}"}
+           "output_dir": str(d)}
     app_module.jobs[job_id] = job
     return d, job
 
@@ -99,25 +93,25 @@ def _run(monkeypatch, job_id, status="completed", cancel_in=None, hooks=None):
 
 
 class TestSlotGoesFirst:
-    def test_slot_is_free_while_the_clips_upload(self, env, monkeypatch):
+    def test_slot_is_free_during_the_delivery(self, env, monkeypatch):
         root, calls, hooks = env
         d, job = _job(root, "j1")
         seen = {}
 
-        async def during_archive(jid):
+        async def during_ready(jid):
             seen["sem"] = app_module.concurrency_semaphore._value
             seen["running"] = set(app_module._running_jobs)
             seen["delivering"] = set(app_module._delivering_jobs)
             seen["status"] = app_module._presented_status(jid, job)
             seen["manifest"] = app_module._read_manifest(jid)
-        hooks["archive"] = during_archive
+        hooks["ready"] = during_ready
         sem = _run(monkeypatch, "j1")
-        assert seen["sem"] == 1, "the GPU slot must be released before the R2 upload"
+        assert seen["sem"] == 1, "the GPU slot must be released before the delivery"
         assert seen["running"] == set() and seen["delivering"] == {"j1"}
         assert seen["status"] == "processing", "not finished for the user mid-delivery"
         assert seen["manifest"]["stage"] == "delivering"
         assert seen["manifest"]["outcome"] == "completed"
-        assert seen["manifest"]["delivered"] == ["settle"]
+        assert seen["manifest"]["delivered"] == []
         assert [c[0] for c in calls] == STEPS        # every step, once, in order
         assert not (d / app_module._RESUME_FILE).exists()
         assert app_module._presented_status("j1", job) == "completed"
@@ -132,10 +126,10 @@ class TestSlotGoesFirst:
             async def f(jid):
                 seen[name] = app_module._presented_status(jid, job)
             return f
-        for name in ("unmark", "webhook", "email"):
+        for name in ("ready", "webhook"):
             hooks[name] = at(name)
         _run(monkeypatch, "j2")
-        assert seen == {"unmark": "processing", "webhook": "completed", "email": "completed"}
+        assert seen == {"ready": "processing", "webhook": "completed"}
 
     def test_failed_job_is_delivered_as_failed(self, env, monkeypatch):
         root, calls, _ = env
@@ -150,8 +144,8 @@ class TestSlotGoesFirst:
         d, _job_rec = _job(root, "j4")
 
         async def boom(jid):
-            raise RuntimeError("R2 down")
-        hooks["archive"] = boom
+            raise RuntimeError("webhook down")
+        hooks["ready"] = boom
         _run(monkeypatch, "j4")
         assert [c[0] for c in calls] == STEPS
         assert not (d / app_module._RESUME_FILE).exists()
@@ -165,7 +159,7 @@ class TestSlotGoesFirst:
             active["max"] = max(active["max"], active["now"])
             await asyncio.sleep(0.05)
             active["now"] -= 1
-        hooks["archive"] = slow
+        hooks["ready"] = slow
         recs = [_job(root, f"c{i}")[1] for i in range(4)]
         for i, rec in enumerate(recs):
             rec["status"] = "completed"
@@ -195,17 +189,17 @@ class TestDeployHandover:
         assert asyncio.run(scenario()) >= 0.2 and calls
 
     def test_cut_delivery_resumes_without_rendering_again(self, env, monkeypatch):
-        """Drain timeout mid-upload: the manifest survives with the steps done;
+        """Drain timeout mid-delivery: the manifest survives with the steps done;
         the next instance finishes from the first step not done, no main.py,
-        no second settle, nothing enqueued."""
+        nothing enqueued."""
         root, calls, hooks = env
         d, job = _job(root, "k1")
-        _run(monkeypatch, "k1", cancel_in="archive", hooks=hooks)
+        _run(monkeypatch, "k1", cancel_in="webhook", hooks=hooks)
         m = app_module._read_manifest("k1")
         assert m is not None and m["stage"] == "delivering"
-        assert m["delivered"] == ["settle"] and m["reservation_id"] == "res-k1"
+        assert m["delivered"] == ["ready"]
         assert m["ready_files"] == {"0": "V_clip_1.mp4"}
-        assert [c[0] for c in calls] == ["settle", "archive"]
+        assert [c[0] for c in calls] == ["ready", "webhook"]
 
         # The next instance: fresh memory, the old heartbeat gone stale.
         calls.clear()
@@ -217,8 +211,7 @@ class TestDeployHandover:
         (d / app_module._RESUME_FILE).write_text(json.dumps(m))
         app_module._recover_jobs_from_disk()
         assert "k1" not in app_module.jobs             # in flight: not "completed" yet
-        keep = app_module._resume_interrupted_jobs()
-        assert keep == {"res-k1"}                      # reservation kept for the settle
+        app_module._resume_interrupted_jobs()
         assert app_module.job_queue.qsize() == 0       # main.py is not run again
         rec = app_module.jobs["k1"]
         assert app_module._presented_status("k1", rec) == "processing"
@@ -232,7 +225,7 @@ class TestDeployHandover:
                 if not app_module._delivering_jobs:
                     break
         asyncio.run(go())
-        assert [c[0] for c in calls] == STEPS[1:]      # settle not repeated
+        assert [c[0] for c in calls] == STEPS[1:]      # the first step is not repeated
         assert rec["status"] == "completed"
         assert app_module._presented_status("k1", rec) == "completed"
         assert not (d / app_module._RESUME_FILE).exists()
@@ -243,11 +236,11 @@ class TestDeployHandover:
         app_module.jobs.clear()
         m = app_module._read_manifest("p1")
         now = time.time()
-        m.update(stage="delivering", outcome="completed", delivered=["settle"],
+        m.update(stage="delivering", outcome="completed", delivered=["ready"],
                  attempts=app_module.MAX_RESUME_ATTEMPTS, instance="old",
                  heartbeat=now - 600, run_started=now - 900, resumed_at=now - 1000)
         (d / app_module._RESUME_FILE).write_text(json.dumps(m))
-        assert app_module._resume_interrupted_jobs() == {"res-p1"}
+        app_module._resume_interrupted_jobs()
         assert app_module._pending_deliveries == ["p1"]
 
     def test_live_delivery_elsewhere_is_left_alone_and_holds_no_gpu(self, env):
@@ -262,15 +255,6 @@ class TestDeployHandover:
         assert "e1" not in app_module.jobs and app_module._pending_deliveries == []
         assert app_module._jobs_busy_elsewhere() == 0
         assert app_module._job_view_from_disk("e1")["status"] == "processing"
-
-    def test_delivering_manifest_is_not_reprioritized(self, env):
-        root, _calls, _ = env
-        d, _job_rec = _job(root, "r1")
-        m = app_module._read_manifest("r1")
-        m.update(stage="delivering", outcome="completed")
-        (d / app_module._RESUME_FILE).write_text(json.dumps(m))
-        assert app_module._rewrite_manifest_priorities({"u": 0}, set(), time.time()) == set()
-        assert app_module._read_manifest("r1")["priority"] == 2
 
     def test_delivering_job_dir_is_never_swept(self, env):
         root, _calls, _ = env

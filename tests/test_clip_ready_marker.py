@@ -71,9 +71,6 @@ class TestMainAnnouncesTheDeliveredFile:
         """
         main_src = open("main.py", encoding="utf-8").read()
         caption_at = main_src.index("captioned = auto_caption_clip(")
-        # The free plan's served file is a wm_ copy of the captioned final
-        # (mark_delivery), so the marker must also come after that step.
         served_at = main_src.index("served = captioned or deliver_path")
-        mark_at = main_src.index("served = mark_delivery(served)")
         marker_at = main_src.index('print(f"CLIP_READY {i} {os.path.basename(served)}")')
-        assert caption_at < served_at < mark_at < marker_at
+        assert caption_at < served_at < marker_at

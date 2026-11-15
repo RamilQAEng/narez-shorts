@@ -2657,8 +2657,7 @@ async def process_endpoint(
     env.setdefault("PYTHONIOENCODING", "utf-8")
 
     # Optional layouts are per job. The renderer reads these at import time in
-    # the subprocess, so they must be set before Popen — same path WATERMARK
-    # already takes.
+    # the subprocess, so they must be set before Popen.
     chosen = layout_env(layouts)
     env.update(chosen)
     if chosen:

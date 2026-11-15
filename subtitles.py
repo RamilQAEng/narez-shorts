@@ -665,33 +665,15 @@ def subtitles_filter(srt_path, alignment=2, fontsize=16,
     return vf
 
 
-def _video_size(path):
-    """(width, height) of the first video stream, or None."""
-    try:
-        out = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path],
-            stderr=subprocess.DEVNULL, timeout=60).decode().strip()
-        w, h = out.split("\n")[0].split("x")[:2]
-        return int(w), int(h)
-    except Exception:
-        return None
-
-
 def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
                    font_name="Verdana", font_color="#FFFFFF",
                    border_color="#000000", border_width=2,
-                   bg_color="#000000", bg_opacity=0.0, mark=None):
+                   bg_color="#000000", bg_opacity=0.0):
     """
     Burns subtitles into the video using FFmpeg.
     Supports two modes:
     - Outline mode (bg_opacity=0): Text with colored outline/border
     - Box mode (bg_opacity>0): Text with semi-transparent background box
-
-    ``mark``: optional (logo_path, make_filter, path): ALSO write ``path`` =
-    the captioned picture with the free-plan mark (the served ``wm_`` copy,
-    main.mark_delivery), from the same decode. ``make_filter(vw, vh, video=,
-    logo=, out=)`` is main.watermark_filter.
     """
     vf = subtitles_filter(srt_path, alignment=alignment, fontsize=fontsize,
                           font_name=font_name, font_color=font_color,
@@ -701,21 +683,7 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
     tail = ['-c:a', 'copy', *video_encode_args(QUALITY), *METADATA_SCRUB,
             '-movflags', '+faststart']
     outputs = [output_path]
-    size = _video_size(video_path) if mark else None
-    if size:
-        logo_path, make_filter, mark_path = mark
-        marked = make_filter(size[0], size[1], video="[sm]", logo="[1:v]", out="[m]")
-        cmd = [
-            'ffmpeg', '-y',
-            '-i', video_path,
-            '-i', logo_path,
-            '-filter_complex', f"[0:v]{vf},split=2[s][sm];{marked}",
-            '-map', '[s]', '-map', '0:a?', *tail, output_path,
-            '-map', '[m]', '-map', '0:a?', *tail, mark_path,
-        ]
-        outputs.append(mark_path)
-    else:
-        cmd = ['ffmpeg', '-y', '-i', video_path, '-vf', vf, *tail, output_path]
+    cmd = ['ffmpeg', '-y', '-i', video_path, '-vf', vf, *tail, output_path]
 
     _log(f"🎬 Burning subtitles: {' '.join(cmd)}")
     result = gpu_decode.run(

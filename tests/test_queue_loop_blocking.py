@@ -3,8 +3,8 @@
 The API, its health check and the job queue share one event loop. With the
 queue backed up there are thousands of job dirs, and reading every manifest
 (open + json.load) inside the loop stalled it for as long as that took on
-every Stripe upsert, every resume scan and every metering sweep. The scans
-now read and rewrite on a worker thread; only the heap is touched on the loop.
+every resume scan. The scan now reads and rewrites on a worker thread; only
+the heap is touched on the loop.
 
 Each manifest read is made artificially slow here, so the test tells the two
 apart on any machine: inside the loop the stall would be the whole scan.
@@ -36,22 +36,18 @@ def busy_disk(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "jobs", {})
     monkeypatch.setattr(app_module, "job_queue", asyncio.PriorityQueue())
     monkeypatch.setattr(app_module, "_job_seq", itertools.count())
-    monkeypatch.setattr(app_module, "_seen_priority_gen", app_module._UNSEEN)
     for i in range(N):
         d = root / f"j{i}"
         d.mkdir()
-        uid = f"u{i % 30}"
-        (d / app_module._RESUME_FILE).write_text(json.dumps(
-            {"priority": 2, "user_id": uid, "reservation_id": f"r{i}"}))
-        app_module.jobs[f"j{i}"] = {"status": "queued", "user_id": uid,
-                                    "reservation_id": f"r{i}", "logs": []}
-        app_module._enqueue_job(f"j{i}", 2)
-    real = app_module._read_manifest
+        (d / app_module._RESUME_FILE).write_text(json.dumps({"cmd": ["x"]}))
+        app_module.jobs[f"j{i}"] = {"status": "queued", "logs": []}
+        app_module._enqueue_job(f"j{i}")
+    real = json.load
 
-    def slow_read(job_id):
+    def slow_load(fp, *a, **k):
         time.sleep(READ_COST)
-        return real(job_id)
-    monkeypatch.setattr(app_module, "_read_manifest", slow_read)
+        return real(fp, *a, **k)
+    monkeypatch.setattr(app_module.json, "load", slow_load)
     return root
 
 
@@ -78,21 +74,7 @@ def _worst_stall(coro_fn):
     return asyncio.run(run())
 
 
-def test_reprioritize_keeps_the_loop_responsive(busy_disk):
-    worst, took, moved = _worst_stall(lambda: app_module.reprioritize_user_jobs("u7", 1))
-    assert moved == sum(1 for i in range(N) if i % 30 == 7)
+def test_resume_scan_keeps_the_loop_responsive(busy_disk):
+    worst, took, _ = _worst_stall(app_module._resume_interrupted_jobs_async)
     assert took > 0.5, "the slow reads did happen"
-    assert worst < MAX_STALL, f"loop held {worst * 1000:.0f} ms"
-
-
-def test_follow_keeps_the_loop_responsive(busy_disk):
-    worst, took, _ = _worst_stall(app_module._follow_manifest_priorities)
-    assert took > 0.5
-    assert worst < MAX_STALL, f"loop held {worst * 1000:.0f} ms"
-
-
-def test_live_reservations_keep_the_loop_responsive(busy_disk):
-    worst, took, live = _worst_stall(app_module._live_reservation_ids)
-    assert len(live) == N
-    assert took > 0.5
     assert worst < MAX_STALL, f"loop held {worst * 1000:.0f} ms"
