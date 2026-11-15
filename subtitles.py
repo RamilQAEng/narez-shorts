@@ -254,6 +254,20 @@ AUTO_CAPTION_STYLE = {
 }
 
 
+# Anton ships without Cyrillic glyphs, so Russian captions fall back to a wide
+# system font and a 16-char line runs off the 1080px frame. Montserrat has
+# Cyrillic; size and width chosen by burning a real Russian clip (15-nov-2026).
+CYRILLIC_LANGUAGES = {"ru", "uk", "be", "bg", "sr", "mk", "kk", "ky", "mn", "tg"}
+CYRILLIC_CAPTION_STYLE = {**AUTO_CAPTION_STYLE, "font_name": "Montserrat ExtraBold",
+                          "font_size": 30, "max_chars": 9, "border_width": 3}
+
+
+def auto_caption_style(language):
+    """The default caption style for a transcript language code."""
+    return CYRILLIC_CAPTION_STYLE if (language or "").lower() in CYRILLIC_LANGUAGES \
+        else AUTO_CAPTION_STYLE
+
+
 # Named looks for /api/subtitle `preset` (and the MCP add_subtitles tool), in
 # request-field names. Mirrors the dashboard's CAPTION_PRESETS in
 # SubtitleModal.jsx (a test checks the ids): "default" is what every clip

@@ -29,6 +29,9 @@ import gpu_decode
 import gemini_worker
 import hook_grounding
 import layout_picker
+import brand_banner
+import project_layout
+import projects
 import llm_backend
 import yt_account
 import twitch_signals
@@ -1329,7 +1332,11 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         return None  # silent video: nothing to caption
     try:
         import subtitles as _subs
-        style = _subs.AUTO_CAPTION_STYLE
+        style = _subs.auto_caption_style(transcript.get('language'))
+        margin_v = _subs.SAFE_MARGIN_V
+        if os.environ.get("PROJECT_ID"):  # captions sit on the game under the webcam: smaller and lower
+            style = {**style, "font_size": project_layout.CAPTION_FONT_SIZE}
+            margin_v = project_layout.CAPTION_MARGIN_V
         output_dir = os.path.dirname(clip_path)
         stem = os.path.basename(clip_path)
         generation_id = int(time.time())
@@ -1364,7 +1371,7 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
             split_ranges = _layouts.split_ranges(_layouts.read(clip_path))
         if not _subs.generate_ass(
                 transcript, clip_start, clip_end, ass_path,
-                split_ranges=split_ranges,
+                split_ranges=split_ranges, margin_v=margin_v,
                 max_chars=style["max_chars"], max_duration=style["max_duration"],
                 alignment=style["alignment"], fontsize=style["font_size"],
                 font_name=style["font_name"], font_color=style["font_color"],
@@ -2534,6 +2541,13 @@ if __name__ == '__main__':
                         help="Fetch the source (download, cut to the paid minutes), print "
                              "SOURCE_READY <path> and exit: a remote worker renders it.")
 
+    parser.add_argument('--transcribe-only', action='store_true',
+                        help="Download/transcribe, save <output>/transcript.json and exit "
+                             "(an agent picks the clips; use with --keep-original).")
+    parser.add_argument('--clips', type=str,
+                        help="Path to a JSON {\"shorts\": [{start, end, video_title_for_youtube_short, "
+                             "viral_hook_text, ...}]} to render instead of asking an LLM.")
+
     args = parser.parse_args()
     output_format = args.format
 
@@ -2658,6 +2672,8 @@ if __name__ == '__main__':
 
         use_early = (not args.skip_analysis and not args.transcript
                      and not args.prepare_only
+                     and not args.clips and not args.transcribe_only
+                     and os.environ.get("AGENT_CLIPS") != "1"
                      and os.environ.get("EARLY_AUDIO", "1").strip() != "0"
                      and not os.environ.get("MAX_SOURCE_MINUTES", "").strip()
                      and not os.path.exists(os.path.join(output_dir, TRANSCRIPT_CHECKPOINT)))
@@ -2788,6 +2804,11 @@ if __name__ == '__main__':
             except Exception as e:
                 print(f"⚠️ Could not use precomputed transcript ({e}) — transcribing normally.")
                 transcript = None
+        agent_tr = os.path.join(output_dir, "transcript.json")
+        if transcript is None and os.environ.get("AGENT_CLIPS") == "1" and os.path.isfile(agent_tr):
+            with open(agent_tr, encoding="utf-8") as f:  # re-render in the same job dir: no second 20-min ASR
+                transcript = json.load(f)
+            print(f"⏩ Reusing {agent_tr}.")
         early_state = globals().get("early")
         if transcript is None and early_state is not None:
             with early_state["lock"]:
@@ -2820,9 +2841,37 @@ if __name__ == '__main__':
                   f"switching to visual analysis.")
             transcript = None
 
+        if args.transcribe_only:
+            if transcript is None:
+                raise RuntimeError("No speech to transcribe in this video.")
+            out_json = os.path.join(output_dir, "transcript.json")
+            write_json_atomic(out_json, transcript, indent=1)
+            print(f"TRANSCRIPT_READY {out_json} source={input_video} duration={duration:.1f}", flush=True)
+            sys.exit(0)
+
         # 4. Gemini Analysis (transcript-driven, or vision for silent videos)
         early_clips = (early_state or {}).get("clips") if early_state else None
-        if (transcript is not None and early_clips
+        if os.environ.get("AGENT_CLIPS") == "1" and not args.clips and transcript is not None:
+            # Dashboard job, clips picked by an agent: park the transcript next
+            # to the job and wait for clips.json (up to AGENT_CLIPS_WAIT_MIN).
+            write_json_atomic(os.path.join(output_dir, "transcript.json"), transcript, indent=1)
+            args.clips = os.path.join(output_dir, "clips.json")
+            print(f"AGENT_WAITING {args.clips} duration={duration:.1f}", flush=True)
+            deadline = time.time() + 60 * float(os.environ.get("AGENT_CLIPS_WAIT_MIN", "120"))
+            while not os.path.isfile(args.clips):
+                if time.time() > deadline:
+                    raise RuntimeError("Timed out waiting for clips.json from the agent.")
+                time.sleep(3)
+            time.sleep(1)  # let a non-atomic writer finish
+        if args.clips:
+            with open(args.clips, encoding="utf-8") as f:
+                clips_data = json.load(f)
+            bad = [c for c in clips_data.get("shorts", [])
+                   if not (0 <= float(c["start"]) < float(c["end"]) <= duration + 1)]
+            if bad:
+                raise RuntimeError(f"--clips: {len(bad)} clip(s) outside the video (0-{duration:.0f}s).")
+            print(f"⏩ Using {len(clips_data['shorts'])} clips from {args.clips}.")
+        elif (transcript is not None and early_clips
                 and transcript is early_state["transcript"]):
             print("♻️ Using the clips Gemini picked while the video downloaded.")
             clips_data = early_clips
@@ -2880,8 +2929,12 @@ if __name__ == '__main__':
                     # permanent: paying could not remove it from clips already
                     # made. Each worker writes only its own clip dict, so the
                     # re-dump after the pool is race-free.
-                    success = render_clip(clip_temp_path, clip_final_path, output_format,
-                                          subtitle_band=source_subtitle_band)
+                    project = projects.get(os.environ.get("PROJECT_ID"))
+                    success = project and project_layout.render(
+                        clip_temp_path, clip_final_path, project, clip.get('zoom_moments'), start, end)
+                    if not success:  # no project, or its layout failed: the automatic reframe
+                        success = render_clip(clip_temp_path, clip_final_path, output_format,
+                                              subtitle_band=source_subtitle_band)
                     if success:
                         print(f"   🎞️ Clip {i+1} framed")
                     deliver_path = clip_final_path
@@ -2915,6 +2968,8 @@ if __name__ == '__main__':
                                 split_ranges=split_ranges,
                                 mark=os.environ.get("WATERMARK") == "1")
                         served = captioned or deliver_path
+                        served = brand_banner.apply_to_clip(served, os.environ.get("BANNER_ID"),
+                                                            os.environ.get("BANNER_POSITION"))
                         if os.environ.get("WATERMARK") == "1":
                             served = mark_delivery(served)
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")

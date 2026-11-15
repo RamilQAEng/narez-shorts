@@ -272,7 +272,7 @@ const pollJob = async (jobId) => {
 
 function App() {
   // Cloud auth/billing session (inert when billing is disabled).
-  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, loading: authLoading } = useAuth();
+  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, agentClips, loading: authLoading } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   // Free plan: "want the watermark off?" once per job, when the clips land.
@@ -923,8 +923,9 @@ function App() {
   // `keysMissing` now means "self-host BYOK keys missing" — it never fires on hosted.
   // A self-hosted server running the moment picker on a local LLM
   // (LLM_BASE_URL) does not need a Gemini key for the core pipeline.
-  const geminiOk = !!apiKey || !!localLlm;
-  const keysMissing = !billingEnabled && (!geminiOk || !uploadPostKey);
+  // In agent mode (AGENT_CLIPS=1) the user's own agent picks the clips: no key at all is needed to cut.
+  const geminiOk = !!apiKey || !!localLlm || agentClips;
+  const keysMissing = !billingEnabled && !agentClips && (!geminiOk || !uploadPostKey);
   const needsPlan = billingEnabled && !isManaged;   // hosted, signed-out or no active plan/trial
 
   // Fresh sign-up: Clip Generator tutorial (AuthContext set os_show_clip_tutorial
@@ -1191,6 +1192,9 @@ function App() {
         auto_hook_style: data.autoHook ? (data.autoHookStyle || 'pill') : null,
         // 'auto' is the server default, so only a deliberate choice travels.
         layouts: data.layout && data.layout !== 'auto' ? data.layout : null,
+        project_id: data.projectId || null,
+        banner_id: data.bannerId || null,
+        banner_position: data.bannerId ? data.bannerPlace : null,
         // Set when the user took the quota wall's "clip the first N minutes"
         // offer: the server reserves N minutes and cuts the source to them.
         max_minutes: data.maxMinutes || null,

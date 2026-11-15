@@ -129,6 +129,8 @@ for _stream in (sys.stdout, sys.stderr):
 # when BILLING_ENABLED is set. With the flag off, the app behaves exactly as the
 # self-hosted BYOK app does today (no extra dependencies required).
 BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").lower() in ("1", "true", "yes")
+# Self-host agent mode: main.py waits for clips.json written by the user's own agent, so cutting needs no LLM key.
+AGENT_CLIPS = not BILLING_ENABLED and os.environ.get("AGENT_CLIPS") == "1"
 
 # Job/file retention (issue #46). Self-host defaults to 24h: the 1h sweep kept
 # deleting finished projects under users who never touched their env, and the
@@ -4081,6 +4083,13 @@ app.include_router(_mcp_server.router)
 import free_tools as _free_tools
 app.include_router(_free_tools.router)
 
+# Brand banner library (self-host): /api/banners; a job picks one with banner_id.
+import brand_api as _brand_api
+if not BILLING_ENABLED:  # the library is shared and unauthenticated: self-host only
+    app.include_router(_brand_api.router)
+    import projects_api
+    app.include_router(projects_api.router)
+
 # Enable CORS for frontend. Cloud mode locks this down to the configured origins;
 # self-host keeps the permissive wildcard it has always used.
 app.add_middleware(
@@ -5076,6 +5085,8 @@ async def get_config():
         # Self-host only: tells the dashboard the Gemini key is optional
         # because the moment picker runs on an OpenAI-compatible server.
         "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
+        # Self-host only: clips come from the user's own agent, so the dashboard asks for no key.
+        "agentClips": AGENT_CLIPS,
     }
 
 async def _probe_youtube_quality(url: str) -> dict:
@@ -5460,9 +5471,12 @@ async def process_endpoint(
     max_minutes: Optional[str] = Form(None),
     source_start: Optional[str] = Form(None),
     source_end: Optional[str] = Form(None),
+    banner_id: Optional[str] = Form(None),
+    banner_position: Optional[str] = Form(None),
+    project_id: Optional[str] = Form(None),
 ):
     api_key = await resolve_gemini(request)
-    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    if not api_key and not AGENT_CLIPS and not (llm_backend.active() and not BILLING_ENABLED):
         # Self-host with an OpenAI-compatible server configured needs no
         # Google key for the core pipeline: the moment picker runs there and
         # the frame-based stages degrade on their own (layout_picker returns
@@ -5601,6 +5615,19 @@ async def process_endpoint(
         if auto_hook_style in HOOK_STYLES:
             env["AUTO_HOOK_STYLE"] = auto_hook_style
         print(f"[auto-hook] job={job_id} style={env.get('AUTO_HOOK_STYLE', 'classic')}")
+
+    # Brand banner picked at submit time; unknown ids are ignored, not trusted.
+    import brand_banner
+    import projects
+    project = projects.get(project_id)
+    if project:
+        env["PROJECT_ID"] = project["id"]
+        if not banner_id and project["banner_id"]:  # the project's banner, unless the request picked one
+            banner_id, banner_position = project["banner_id"], project["banner_position"]
+    if brand_banner.get(banner_id):
+        env["BANNER_ID"] = banner_id
+        if banner_position in brand_banner.POSITIONS:
+            env["BANNER_POSITION"] = banner_position
 
     # Manual generation controls (discussion #65): optional clip-count target
     # and duration band, forwarded to the selection prompts via the same env

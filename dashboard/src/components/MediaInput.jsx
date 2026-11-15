@@ -3,6 +3,8 @@ import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown } from 'lucide-
 import { track } from '../lib/analytics';
 import { getApiUrl } from '../config';
 import SourceCost from './SourceCost';
+import BannerPicker from './BannerPicker';
+import ProjectPicker from './ProjectPicker';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch', 'Kick',
@@ -46,6 +48,8 @@ export default function MediaInput({ onProcess, isProcessing }) {
     // Advanced generation controls — empty string means "let the AI decide",
     // which keeps the default pipeline behavior untouched.
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [banner, setBanner] = useState({ id: '', place: 'top' });
+    const [projectId, setProjectId] = useState('');
     const [targetClips, setTargetClips] = useState('');
     const [clipMinSeconds, setClipMinSeconds] = useState('');
     const [clipMaxSeconds, setClipMaxSeconds] = useState('');
@@ -127,6 +131,9 @@ export default function MediaInput({ onProcess, isProcessing }) {
             autoHook,
             autoHookStyle,
             layout,
+            projectId: projectId || null,
+            bannerId: banner.id,
+            bannerPlace: banner.place,
             sourceStart: range ? Math.round(range.start) : null,
             sourceEnd: range ? Math.round(range.end) : null,
         };
@@ -302,6 +309,15 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         })}
                     </div>
                 </div>
+
+                <div className="mt-4">
+                    <ProjectPicker value={projectId} url={mode === 'url' ? url : ''} banner={banner}
+                                   onChange={(p) => {
+                                       setProjectId(p ? p.id : '');
+                                       if (p?.banner_id) setBanner({ id: p.banner_id, place: p.banner_position || 'top' });
+                                   }} />
+                </div>
+                <div className="mt-4"><BannerPicker value={banner} onChange={setBanner} /></div>
 
                 {/* Advanced generation controls — collapsed by default; blank = AI decides */}
                 <div className="mt-4">

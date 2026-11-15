@@ -72,3 +72,11 @@ silently). Self-host `/api/process` then accepts a request without
 `X-Gemini-Key` and `/api/config.localLlm` tells the dashboard not to demand one.
 Frame-based stages (`layout_picker`, `screencast_layout`, `get_visual_clips`)
 stay on Gemini. Never wired in cloud mode: `BILLING_ENABLED` ignores it.
+
+## Agent mode (`AGENT_CLIPS=1`, self-host only)
+
+`main.py` saves `transcript.json` in the job and waits (up to `AGENT_CLIPS_WAIT_MIN`, default 120)
+for `clips.json` written by the user's own agent (Claude Code, Codex). No LLM is called, so
+`/api/process` takes a request with no `X-Gemini-Key` and `/api/config.agentClips` tells the
+dashboard to ask for no key at all (Upload-Post stays optional: it is only for posting).
+`LLM_BASE_URL` is not needed in this mode.
