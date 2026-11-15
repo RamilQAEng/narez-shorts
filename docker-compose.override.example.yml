@@ -1,0 +1,23 @@
+# Copy to docker-compose.override.yml (start.ps1 does it on the first run). That file is git-ignored.
+# Agent mode: clips are picked by your own agent (Claude Code, Codex), so no API key is needed.
+services:
+  backend:
+    environment:
+      - AGENT_CLIPS=1
+      # Netscape cookies.txt exported from Firefox by refresh_cookies.ps1 (never commit it).
+      - YOUTUBE_COOKIES=/app/yt_cookies.txt
+      # How long a job waits for clips.json from the agent, minutes (default 120).
+      # - AGENT_CLIPS_WAIT_MIN=120
+
+    # NVIDIA GPU (optional): uncomment, then `docker compose up -d --build backend frontend`.
+    # build:
+    #   context: .
+    #   args:
+    #     GPU: "1"
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video]
