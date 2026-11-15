@@ -1,4 +1,4 @@
-# Download routing and paid proxy accounting (`cloud/proxy_ledger.py`)
+# Download routing
 
 ## Route order
 
@@ -64,21 +64,6 @@ identically.
   `download_youtube_video` instead of the env.
 - Do not keep `PROXY_URL` in a local `.env`: every local `main.py` run would then
   bill the per-GB proxy.
-
-## Ledger and alerts
-
-`main.py` prints `PROXY_ROUTE=<json>` after every download (winner, paid bytes
-across all attempts including failed paid ones, each free attempt's error);
-`app.py` persists it as a `proxy_usage` row at job end and alerts when the paid
-proxy carried bytes, folding a burst into one message per 5 min. The table, not
-the in-memory monthly counter or the rotating container log, is what answers
-"what did this day cost".
-
-The watcher probes the static pool against a real YouTube watch page (playable
-markers), not a generic connectivity endpoint: YouTube can refuse the static IPs
-while other hosts keep answering. When `YOUTUBE_COOKIES` is set it also checks
-the ytcfg `LOGGED_IN` marker and alerts on the first probe that says the session
-is gone (`cloud/alerts.py`).
 
 ## The account's request budget (`yt_account.py`)
 
