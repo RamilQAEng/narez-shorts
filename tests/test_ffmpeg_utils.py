@@ -173,8 +173,12 @@ def _cut(tmp_path, monkeypatch):
     monkeypatch.setattr(ffmpeg_utils, "_probe_nvenc", lambda: True)
     slept = []
     monkeypatch.setattr(ffmpeg_utils.time, "sleep", slept.append)
+    durations = []  # per attempt; empty = a full-length cut
+    monkeypatch.setattr(ffmpeg_utils, "_file_duration",
+                        lambda path: durations.pop(0) if durations else 10.5)
 
-    def run(outcomes):
+    def run(outcomes, durations_seen=()):
+        durations.extend(durations_seen)
         fake = _FakeRun(outcomes)
         monkeypatch.setattr(ffmpeg_utils.subprocess, "run", fake)
         ffmpeg_utils.cut_clip("source.mp4", str(tmp_path / "temp_clip.mp4"), 1.5, 12.0, 4)
@@ -204,6 +208,12 @@ def test_exit_zero_with_an_empty_file_is_still_a_failure(_cut):
     """The prod symptom: ffmpeg wrote nothing, so the reframer met a file with
     no moov atom and blamed the temp clip instead of the encode."""
     fake = _cut([(0, 0, ""), (0, 5_000_000, "")])
+    assert len(fake.commands) == 2
+
+
+def test_exit_zero_but_truncated_cut_is_retried(_cut):
+    """A 10.5 s clip that came out 1.4 s long (seen in a 6-clip CPU job)."""
+    fake = _cut([(0, 5_000_000, ""), (0, 5_000_000, "")], durations_seen=[1.4])
     assert len(fake.commands) == 2
 
 

@@ -343,6 +343,17 @@ def _gpu_cut_ok(input_video):
     return _gpu_cut_sources[input_video]
 
 
+def _file_duration(path):
+    """Seconds of a media file by ffprobe, 0.0 when unreadable."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        capture_output=True, text=True)
+    try:
+        return float(probe.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
 def cut_clip(input_video, clip_temp_path, start, end, clip_number):
     """Cut [start, end] out of the source into ``clip_temp_path``.
 
@@ -390,6 +401,12 @@ def cut_clip(input_video, clip_temp_path, start, end, clip_number):
         # itself is the verdict, not just the return code.
         size = os.path.getsize(clip_temp_path) if os.path.exists(clip_temp_path) else 0
         ok = result.returncode == 0 and size >= MIN_CUT_BYTES
+        if ok:
+            # A cut that exited 0 but stopped early (a 48 s clip came out 1.4 s) is a failed cut.
+            got = _file_duration(clip_temp_path)
+            if got and got < 0.8 * (end - start):  # 0.0 = ffprobe could not tell: accept
+                ok = False
+                size = f"{size} (duration {got:.1f}s of {end - start:.1f}s)"
         return ok, f"exit {result.returncode}, {size} bytes\n{(result.stderr or '').strip()[-800:]}"
 
     def _run():
