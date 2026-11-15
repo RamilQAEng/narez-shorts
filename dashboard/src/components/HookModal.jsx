@@ -5,28 +5,28 @@ import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 
 const ENTRANCE_OPTIONS = [
-    { value: 'spring', label: 'Bounce' },
-    { value: 'fade', label: 'Fade' },
-    { value: 'slide-up', label: 'Slide Up' },
-    { value: 'none', label: 'None' },
+    { value: 'spring', label: 'Прыжок' },
+    { value: 'fade', label: 'Появление' },
+    { value: 'slide-up', label: 'Снизу вверх' },
+    { value: 'none', label: 'Нет' },
 ];
 
 // Must mirror hooks.py HOOK_STYLES.
 const HOOK_STYLES = [
-    { value: 'pill', label: 'Pills', box: 'rgba(255,255,255,0.98)', text: '#000', sans: true },
-    { value: 'classic', label: 'Classic', box: 'rgba(255,255,255,0.94)', text: '#000' },
-    { value: 'dark', label: 'Dark', box: 'rgba(18,18,20,0.92)', text: '#fff' },
-    { value: 'yellow', label: 'Yellow', box: 'rgba(255,214,0,0.96)', text: '#000' },
-    { value: 'red', label: 'Red', box: 'rgba(220,38,38,0.96)', text: '#fff' },
-    { value: 'outline', label: 'Outline', box: 'transparent', text: '#fff', outline: true },
-    { value: 'outline_yellow', label: 'Outline+', box: 'transparent', text: '#FFD600', outline: true },
+    { value: 'pill', label: 'Таблетки', box: 'rgba(255,255,255,0.98)', text: '#000', sans: true },
+    { value: 'classic', label: 'Классика', box: 'rgba(255,255,255,0.94)', text: '#000' },
+    { value: 'dark', label: 'Тёмный', box: 'rgba(18,18,20,0.92)', text: '#fff' },
+    { value: 'yellow', label: 'Жёлтый', box: 'rgba(255,214,0,0.96)', text: '#000' },
+    { value: 'red', label: 'Красный', box: 'rgba(220,38,38,0.96)', text: '#fff' },
+    { value: 'outline', label: 'Контур', box: 'transparent', text: '#fff', outline: true },
+    { value: 'outline_yellow', label: 'Контур+', box: 'transparent', text: '#FFD600', outline: true },
 ];
 
 // Must mirror hooks.py HOOK_FONTS (all bundled: /fonts/*.ttf).
 const FONT_OPTIONS = [
     { value: 'montserrat', label: 'Montserrat' },
     { value: 'anton', label: 'Anton' },
-    { value: 'serif', label: 'Serif' },
+    { value: 'serif', label: 'С засечками' },
 ];
 const FONT_CSS = {
     montserrat: { fontFamily: "'Montserrat-ExtraBold', 'Montserrat', sans-serif", fontWeight: 800 },
@@ -39,16 +39,16 @@ const styleFont = (st) => (st === 'pill' ? 'montserrat' : 'serif');
 // auto: the server keeps the hook off the speaker's face and the captions
 // (hook_placement.py). The preview cannot see faces and draws it at the top.
 const POSITION_OPTIONS = [
-    { value: 'auto', label: 'auto' },
-    { value: 'top', label: 'top' },
-    { value: 'center', label: 'center' },
-    { value: 'bottom', label: 'bottom' },
+    { value: 'auto', label: 'авто' },
+    { value: 'top', label: 'сверху' },
+    { value: 'center', label: 'центр' },
+    { value: 'bottom', label: 'снизу' },
 ];
 
 const SIZE_OPTIONS = [
-    { value: 'S', label: 'Small' },
-    { value: 'M', label: 'Medium' },
-    { value: 'L', label: 'Large' },
+    { value: 'S', label: 'Малый' },
+    { value: 'M', label: 'Средний' },
+    { value: 'L', label: 'Большой' },
 ];
 
 // Last-used hook settings, restored on the next open (style always reset to
@@ -107,7 +107,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
         + "@font-face{font-family:'Anton-Regular';src:url('/fonts/Anton-Regular.ttf') format('truetype');font-weight:400;}";
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="lg" eyebrow="EDITOR · HOOK" title="edit hook">
+        <Modal isOpen={isOpen} onClose={onClose} size="lg" eyebrow="РЕДАКТОР · ХУК" title="хук">
             <style>{pillFontFace}</style>
             <div className="flex flex-col md:flex-row gap-6">
                 {/* Left: Preview */}
@@ -136,7 +136,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                                         paddingRight: '12px'
                                     }}
                                 >
-                                    {text || "Enter your text..."}
+                                    {text || "Введи текст…"}
                                 </div>
                             </div>
                         </>
@@ -148,19 +148,19 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                     <div className="space-y-5 flex-1 overflow-y-auto custom-scrollbar pr-1">
                         {/* Text Input */}
                         <div>
-                            <p className="eyebrow mb-2">Text</p>
+                            <p className="eyebrow mb-2">Текст</p>
                             <textarea
                                 value={text}
                                 onChange={(e) => setText(e.target.value)}
                                 rows={4}
                                 className="input-field resize-none"
-                                placeholder="Enter text that will stop the scroll..."
+                                placeholder="Текст, который остановит ленту…"
                             />
                         </div>
 
                         {/* Style (new) */}
                         <div>
-                            <p className="eyebrow mb-2">Style</p>
+                            <p className="eyebrow mb-2">Стиль</p>
                             <div className="grid grid-cols-3 gap-1.5">
                                 {HOOK_STYLES.map((s) => (
                                     <button
@@ -194,7 +194,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
 
                         {/* Typeface */}
                         <div>
-                            <p className="eyebrow mb-2">Font</p>
+                            <p className="eyebrow mb-2">Шрифт</p>
                             <div className="grid grid-cols-3 gap-1.5">
                                 {FONT_OPTIONS.map((f) => (
                                     <button
@@ -212,7 +212,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
 
                         {/* Position Control */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
+                            <p className="eyebrow mb-2">Позиция</p>
                             <SegmentedControl
                                 options={POSITION_OPTIONS}
                                 value={position}
@@ -235,7 +235,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
 
                         {/* Size Control */}
                         <div>
-                            <p className="eyebrow mb-2">Size</p>
+                            <p className="eyebrow mb-2">Размер</p>
                             <SegmentedControl
                                 options={SIZE_OPTIONS}
                                 value={size}
@@ -247,7 +247,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                         {/* Entrance Animation (new) */}
                         {!serverRender && (
                         <div>
-                            <p className="eyebrow mb-2">Entrance</p>
+                            <p className="eyebrow mb-2">Появление</p>
                             <SegmentedControl
                                 options={ENTRANCE_OPTIONS}
                                 value={entranceAnimation}
@@ -261,8 +261,8 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                         {/* Display Duration (new) */}
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <p className="eyebrow">Duration</p>
-                                <span className="readout">{displayDuration}S</span>
+                                <p className="eyebrow">Длительность</p>
+                                <span className="readout">{displayDuration} С</span>
                             </div>
                             <input
                                 type="range"
@@ -273,16 +273,16 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                                 className="w-full accent-[var(--color-accent)]"
                             />
                             <div className="flex justify-between">
-                                <span className="readout">2S</span>
-                                <span className="readout">15S</span>
+                                <span className="readout">2 С</span>
+                                <span className="readout">15 С</span>
                             </div>
                         </div>
 
                         {burnedHook && (
                             <div className="p-3 border border-rule rounded-input text-xs text-muted space-y-2">
                                 <p>
-                                    This clip has a hook burned in ("{burnedHook}").
-                                    Generating replaces it with the new one.
+                                    В этот клип уже вшит хук («{burnedHook}»).
+                                    Новый хук его заменит.
                                 </p>
                                 {onRemove && (
                                     <button
@@ -290,20 +290,20 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                                         disabled={isProcessing}
                                         className="text-warn underline underline-offset-2 hover:opacity-80 transition-opacity"
                                     >
-                                        remove hook from clip
+                                        убрать хук с клипа
                                     </button>
                                 )}
                             </div>
                         )}
 
                         <div className="p-3 border border-rule rounded-input text-xs text-muted">
-                            Tip: keep it short and punchy. Using "POV:" or specific questions works best for retention.
+                            Совет: пиши коротко и цепко. Конкретный вопрос или интрига лучше всего удерживают внимание.
                         </div>
                     </div>
 
                     <div className="flex gap-2 mt-5 shrink-0">
                         <button onClick={onClose} className="btn-ghost">
-                            cancel
+                            отмена
                         </button>
                         <button
                             onClick={() => {
@@ -322,7 +322,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             className="btn-primary flex-1"
                         >
                             {isProcessing && <Loader2 size={16} className="animate-spin text-brassink" />}
-                            {isProcessing ? 'saving...' : (burnedHook ? 'update hook' : 'add hook')}
+                            {isProcessing ? 'сохраняем…' : (burnedHook ? 'обновить хук' : 'добавить хук')}
                         </button>
                     </div>
                 </div>

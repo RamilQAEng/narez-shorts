@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown } from 'lucide-react';
-import { track } from '../lib/analytics';
-import { getApiUrl } from '../config';
-import SourceCost from './SourceCost';
+import { useAuth } from '../contexts/AuthContext';
 import BannerPicker from './BannerPicker';
 import ProjectPicker from './ProjectPicker';
 
@@ -33,16 +31,15 @@ const readVideoDuration = (file) => new Promise((resolve) => {
 });
 
 export default function MediaInput({ onProcess, isProcessing }) {
-    const [youtubeUrlEnabled, setYoutubeUrlEnabled] = useState(true);
+    const { youtubeUrlEnabled } = useAuth();
     // File upload is the primary path; the link is secondary.
     const [mode, setMode] = useState('file'); // 'file' | 'url'
+    useEffect(() => { if (!youtubeUrlEnabled) setMode('file'); }, [youtubeUrlEnabled]);
     const [url, setUrl] = useState('');
     const [file, setFile] = useState(null);
     const [fileSeconds, setFileSeconds] = useState(null);
     const fileTooShort = fileSeconds != null && fileSeconds < MIN_SOURCE_SECONDS;
     const [acknowledged, setAcknowledged] = useState(false);
-    // {start, end} in seconds when the user picked a stretch under the cost line.
-    const [range, setRange] = useState(null);
     const [outputFormat, setOutputFormat] = useState('vertical'); // vertical | horizontal | square
     const [showInfo, setShowInfo] = useState(false);
     // Advanced generation controls — empty string means "let the AI decide",
@@ -85,26 +82,10 @@ export default function MediaInput({ onProcess, isProcessing }) {
         setFileSeconds(null);
         if (!file) return undefined;
         readVideoDuration(file).then((d) => {
-            if (cancelled) return;
-            setFileSeconds(d);
-            if (d != null && d < MIN_SOURCE_SECONDS) {
-                track('SourceTooShort', { props: { seconds: String(Math.round(d)) } });
-            }
+            if (!cancelled) setFileSeconds(d);
         });
         return () => { cancelled = true; };
     }, [file]);
-
-    useEffect(() => {
-        fetch(getApiUrl('/api/config'))
-            .then((r) => r.ok ? r.json() : null)
-            .then((cfg) => {
-                if (cfg && cfg.youtubeUrlEnabled === false) {
-                    setYoutubeUrlEnabled(false);
-                    setMode('file');
-                }
-            })
-            .catch(() => {});
-    }, []);
 
     // A link pasted in the landing hero: preload it here so the user picks up
     // where they left off. Not auto-submitted — the rights attestation below
@@ -134,8 +115,6 @@ export default function MediaInput({ onProcess, isProcessing }) {
             projectId: projectId || null,
             bannerId: banner.id,
             bannerPlace: banner.place,
-            sourceStart: range ? Math.round(range.start) : null,
-            sourceEnd: range ? Math.round(range.end) : null,
         };
         try {
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
@@ -168,7 +147,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         }`}
                 >
                     <Upload size={16} className={`hidden sm:block ${mode === 'file' ? 'text-brass' : ''}`} />
-                    Upload File
+                    Файл
                 </button>
                 {youtubeUrlEnabled && (
                     <button
@@ -179,7 +158,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                             }`}
                     >
                         <Link2 size={16} className={`hidden sm:block ${mode === 'url' ? 'text-brass' : ''}`} />
-                        Video URL
+                        Ссылка
                     </button>
                 )}
             </div>
@@ -192,7 +171,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                 type="url"
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
-                                placeholder="https://... paste a video link"
+                                placeholder="https://… вставь ссылку на видео"
                                 className="input-field pr-11"
                                 required
                             />
@@ -200,14 +179,14 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                 <button
                                     type="button"
                                     onClick={() => setShowInfo((v) => !v)}
-                                    aria-label="Supported platforms"
+                                    aria-label="Поддерживаемые сайты"
                                     className="p-1.5 text-muted hover:text-brass transition-colors"
                                 >
                                     <Info size={16} />
                                 </button>
                                 {showInfo && (
                                     <div className="absolute right-0 top-full mt-2 w-64 z-20 card p-4 text-left animate-fade">
-                                        <p className="eyebrow mb-2">Paste a link from</p>
+                                        <p className="eyebrow mb-2">Ссылки с</p>
                                         <div className="flex flex-wrap gap-1.5">
                                             {SUPPORTED_PLATFORMS.map((p) => (
                                                 <span key={p} className="text-xs px-2 py-0.5 rounded-full bg-paper3 text-ink2">
@@ -216,7 +195,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                             ))}
                                         </div>
                                         <p className="text-xs text-muted mt-2.5 leading-relaxed">
-                                            …and 1,000+ more sites. If a link has a public video, we can usually fetch it.
+                                            …и ещё больше тысячи сайтов. Если видео публичное, мы обычно можем его скачать.
                                         </p>
                                     </div>
                                 )}
@@ -246,8 +225,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         ) : null}
                         {file && fileTooShort ? (
                             <p className="text-danger text-sm mt-3" role="alert">
-                                This video is {Math.round(fileSeconds)}s long. Clip generation needs at least {MIN_SOURCE_SECONDS}s
-                                of footage to cut from: it already is a short. Pick a longer video.
+                                Видео длится {Math.round(fileSeconds)} с. Для нарезки нужно минимум {MIN_SOURCE_SECONDS} с материала: это уже и так шорт. Выбери видео подлиннее.
                             </p>
                         ) : null}
                         {!file && (
@@ -259,29 +237,21 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                     className="hidden"
                                 />
                                 <Upload className="mx-auto mb-3 text-muted" size={18} />
-                                <p className="text-ink2 lowercase">Click to upload or drag and drop</p>
-                                <p className="readout mt-2">MP4, MOV up to 500MB · at least {MIN_SOURCE_SECONDS}s long</p>
+                                <p className="text-ink2 lowercase">Нажми, чтобы загрузить, или перетащи файл сюда</p>
+                                <p className="readout mt-2">MP4, MOV до 500 МБ · не короче {MIN_SOURCE_SECONDS} с</p>
                             </label>
                         )}
                     </div>
                 )}
 
-                <SourceCost
-                    mode={mode}
-                    url={url}
-                    fileSeconds={fileSeconds}
-                    range={range}
-                    onRangeChange={setRange}
-                />
-
                 {/* Output format selector */}
                 <div className="mt-5" data-tutorial="output-format">
-                    <p className="eyebrow mb-2">Output format</p>
+                    <p className="eyebrow mb-2">Формат</p>
                     <div className="grid grid-cols-3 gap-2">
                         {[
                             { value: 'vertical', label: '9:16', hint: 'Shorts · Reels · TikTok', w: 18, h: 32 },
-                            { value: 'square', label: '1:1', hint: 'Feed posts', w: 28, h: 28 },
-                            { value: 'horizontal', label: '16:9', hint: 'Keep landscape · YouTube', w: 36, h: 20 },
+                            { value: 'square', label: '1:1', hint: 'Посты в ленту', w: 28, h: 28 },
+                            { value: 'horizontal', label: '16:9', hint: 'Горизонтально · YouTube', w: 36, h: 20 },
                         ].map((f) => {
                             const active = outputFormat === f.value;
                             return (
@@ -327,7 +297,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         className="flex items-center gap-1.5 text-xs text-muted hover:text-ink2 lowercase transition-colors"
                     >
                         <ChevronDown size={14} className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-                        advanced options
+                        дополнительно
                         {(targetClips || clipMinSeconds || clipMaxSeconds || !autoHook) && (
                             <span className="text-brass">·</span>
                         )}
@@ -337,17 +307,17 @@ export default function MediaInput({ onProcess, isProcessing }) {
                            ~100px each, which crushes both label and value. */
                         <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-2 animate-fade">
                             <div>
-                                <p className="eyebrow mb-1.5">clips to aim for</p>
+                                <p className="eyebrow mb-1.5">сколько клипов</p>
                                 <input
                                     type="number" min="1" max="15" step="1"
                                     value={targetClips}
                                     onChange={(e) => setTargetClips(e.target.value)}
-                                    placeholder="auto"
+                                    placeholder="авто"
                                     className="input-field"
                                 />
                             </div>
                             <div>
-                                <p className="eyebrow mb-1.5">min length (s)</p>
+                                <p className="eyebrow mb-1.5">мин. длина (с)</p>
                                 <input
                                     type="number" min="5" max="175" step="1"
                                     value={clipMinSeconds}
@@ -357,7 +327,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                 />
                             </div>
                             <div>
-                                <p className="eyebrow mb-1.5">max length (s)</p>
+                                <p className="eyebrow mb-1.5">макс. длина (с)</p>
                                 <input
                                     type="number" min="10" max="180" step="1"
                                     value={clipMaxSeconds}
@@ -367,21 +337,21 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                 />
                             </div>
                             <p className="col-span-1 sm:col-span-3 text-[11px] leading-relaxed text-muted">
-                                Targets, not guarantees: the AI returns fewer clips when the
-                                material doesn't hold them. Leave blank to let it decide.
+                                Это ориентир, а не гарантия: если в материале не хватает
+                                сильных моментов, клипов будет меньше. Пусто — решает агент.
                             </p>
                             <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
-                                <span className="text-xs text-ink2">vertical layout</span>
+                                <span className="text-xs text-ink2">раскладка кадра</span>
                                 <select
                                     value={layout}
                                     onChange={(e) => setLayout(e.target.value)}
                                     className="input-field !w-auto text-xs py-1.5"
-                                    aria-label="vertical layout"
+                                    aria-label="раскладка кадра"
                                 >
-                                    <option value="auto">Auto (AI picks per video)</option>
-                                    <option value="split">Two speakers stacked</option>
-                                    <option value="screencast">Screen over presenter</option>
-                                    <option value="none">Single crop only</option>
+                                    <option value="auto">Авто (по видео)</option>
+                                    <option value="split">Двое говорящих друг над другом</option>
+                                    <option value="screencast">Экран над ведущим</option>
+                                    <option value="none">Только один кадр</option>
                                 </select>
                             </div>
                             <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-3 sm:pt-1 border-t border-rule">
@@ -392,7 +362,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                         onChange={(e) => setAutoHook(e.target.checked)}
                                         className="w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
                                     />
-                                    auto hook titles on clips
+                                    хук-заголовок на клипах
                                 </label>
                                 {autoHook && (
                                     <select
@@ -400,19 +370,19 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                         onChange={(e) => setAutoHookStyle(e.target.value)}
                                         className="input-field !w-auto text-xs py-1.5"
                                     >
-                                        <option value="pill">Pills</option>
-                                        <option value="classic">Classic</option>
-                                        <option value="dark">Dark</option>
-                                        <option value="yellow">Yellow</option>
-                                        <option value="red">Red</option>
-                                        <option value="outline">Outline</option>
-                                        <option value="outline_yellow">Outline+</option>
+                                        <option value="pill">Таблетки</option>
+                                        <option value="classic">Классика</option>
+                                        <option value="dark">Тёмный</option>
+                                        <option value="yellow">Жёлтый</option>
+                                        <option value="red">Красный</option>
+                                        <option value="outline">Контур</option>
+                                        <option value="outline_yellow">Контур+</option>
                                     </select>
                                 )}
                                 {autoHook && (
                                     <p className="w-full text-[11px] leading-relaxed text-muted">
-                                        You can change each clip&apos;s hook text, style, position and size
-                                        afterwards with its hook button.
+                                        Текст, стиль, позицию и размер хука можно поменять
+                                        потом на карточке клипа.
                                     </p>
                                 )}
                             </div>
@@ -428,8 +398,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
                     />
                     <span>
-                        I confirm I own this content or have the rights to process it. I am responsible for any content I submit. See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Terms</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
-                    </span>
+                        Подтверждаю, что это моё видео или у меня есть права на его обработку. Ответственность за загруженный контент на мне.</span>
                 </label>
 
                 <button
@@ -441,11 +410,11 @@ export default function MediaInput({ onProcess, isProcessing }) {
                     {isProcessing ? (
                         <>
                             <Loader2 size={16} className="animate-spin" />
-                            Processing Video...
+                            Обрабатываем…
                         </>
                     ) : (
                         <>
-                            Generate Clips
+                            Нарезать
                         </>
                     )}
                 </button>
