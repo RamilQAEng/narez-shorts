@@ -275,6 +275,12 @@ def accounts(env=None):
     out = []
     for name in names:
         text = str(env.get(name) or "").strip()
+        if text and "\n" not in text and os.path.isfile(text):  # a path to a cookies.txt
+            try:
+                with open(text, encoding="utf-8") as f:
+                    text = f.read().strip()
+            except (OSError, UnicodeDecodeError):
+                continue  # an unreadable file is an unconfigured account, not a crash
         if text:
             out.append(text + "\n")
     return out
