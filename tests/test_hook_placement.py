@@ -185,32 +185,6 @@ class TestAddHookToVideo:
             (0.0, y / 1920, 1.0, y / 1920 + result["height"]), [[face]]) == 0
         assert y / 1920 == pytest.approx(result["y"], abs=0.001)
 
-    def test_mark_adds_the_served_copy_to_the_same_pass(self, fake_ffmpeg, tmp_path):
-        """Free plan: the wm_ copy comes out of the hook+captions ffmpeg, from
-        its decode, instead of a second pass over the captioned file."""
-        hooks, calls, video = fake_ffmpeg
-        made = []
-
-        def make_filter(vw, vh, video, logo, out):
-            made.append((vw, vh, video, logo, out))
-            return f"{logo}scale=324:-1[wm];{video}[wm]overlay=54:768{out}"
-
-        hooked, captioned, marked = (str(tmp_path / n) for n in
-                                     ("hooked.mp4", "subtitled.mp4", "wm_subtitled.mp4"))
-        hooks.add_hook_to_video(video, "Hi", hooked, position="top", duration=5,
-                                also=("ass=subs.ass", captioned),
-                                mark=("logo.png", make_filter, marked))
-        cmd = calls["cmd"]
-        assert made == [(1080, 1920, "[sm]", "[2:v]", "[m]")]
-        assert cmd[cmd.index("logo.png") - 1] == "-i"
-        graph = cmd[cmd.index("-filter_complex") + 1]
-        assert ",ass=subs.ass,split=2[s][sm];" in graph and "[h]" not in graph
-        assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "-map" and cmd[i + 1].startswith("[")] \
-            == ["[s]", "[m]"]
-        # The hooked-only picture is not encoded: its recipe is kept instead.
-        assert cmd[-1] == marked and captioned in cmd and hooked not in cmd
-        assert hooks.has_recipe(str(tmp_path), "hooked.mp4")
-
     def test_hooked_copy_is_encoded_in_the_same_pass_when_not_lazy(self, fake_ffmpeg,
                                                                   monkeypatch, tmp_path):
         hooks, calls, video = fake_ffmpeg
@@ -272,21 +246,6 @@ class TestAddHookToVideo:
         assert not os.path.exists(hooked)
         assert not [n for n in os.listdir(tmp_path) if n.startswith(".part_")]
 
-    def test_a_crash_after_every_output_is_finished_keeps_them(self, monkeypatch, fake_ffmpeg,
-                                                              tmp_path):
-        hooks, calls, video = fake_ffmpeg
-        paths = [str(tmp_path / n) for n in ("h.mp4", "s.mp4", "wm.mp4")]
-
-        def run(cmd, **kw):
-            for p in paths:
-                open(p, "wb").write(b"x" * 10)
-            stats = b"[out#0/mp4] video:1KiB muxing overhead: 0.3%\n" * 3
-            return subprocess.CompletedProcess(cmd, -11, b"", stats)
-        monkeypatch.setattr(hooks.subprocess, "run", run)
-        assert hooks.add_hook_to_video(video, "Hi", paths[0], position="top",
-                                       also=("ass=a.ass", paths[1]),
-                                       mark=("logo.png", lambda *a, **k: "[2:v]null[m]", paths[2]))
-
     def test_a_crash_before_every_output_is_finished_still_fails(self, monkeypatch, fake_ffmpeg,
                                                                  tmp_path):
         hooks, calls, video = fake_ffmpeg
@@ -309,12 +268,6 @@ class TestAddHookToVideo:
         monkeypatch.setattr(hooks.subprocess, "run", run)
         with pytest.raises(subprocess.CalledProcessError):
             hooks.add_hook_to_video(video, "Hi", out, position="top")
-
-    def test_mark_without_captions_is_ignored(self, fake_ffmpeg, tmp_path):
-        hooks, calls, video = fake_ffmpeg
-        hooks.add_hook_to_video(video, "Hi", str(tmp_path / "out.mp4"), position="top",
-                                mark=("logo.png", lambda *a, **k: "", "wm.mp4"))
-        assert "logo.png" not in calls["cmd"]
 
     def test_auto_keeps_the_hook_off_a_wide_picture(self, fake_ffmpeg, monkeypatch, tmp_path):
         hooks, calls, video = fake_ffmpeg

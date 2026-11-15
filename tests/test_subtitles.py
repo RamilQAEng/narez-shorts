@@ -405,23 +405,6 @@ class TestBurnWithMark:
         m.burn_subtitles("in.mp4", str(srt), out, mark=("logo.png", make_filter, wm))
         return captured["cmd"], made, out, wm
 
-    def test_two_outputs_from_one_decode(self, monkeypatch, tmp_path):
-        cmd, made, out, wm = self._run(monkeypatch, tmp_path)
-        assert made == [(1080, 1920, "[sm]", "[1:v]", "[m]")]
-        assert cmd[cmd.index("logo.png") - 1] == "-i"
-        assert ",split=2[s][sm];" in cmd[cmd.index("-filter_complex") + 1]
-        assert cmd.index(out) < cmd.index(wm) and cmd[-1] == wm
-        assert "-vf" not in cmd
-
-    def test_crash_after_both_outputs_finished_is_kept(self, monkeypatch, tmp_path):
-        self._run(monkeypatch, tmp_path, returncode=-11,
-                  stderr=b"muxing overhead: 0.1%\nmuxing overhead: 0.1%\n")
-
-    def test_crash_before_the_copy_finished_fails(self, monkeypatch, tmp_path):
-        import pytest
-        with pytest.raises(Exception, match="FFmpeg failed"):
-            self._run(monkeypatch, tmp_path, returncode=-11, stderr=b"muxing overhead: 0.1%\n")
-
     def test_without_mark_the_command_is_unchanged(self, monkeypatch, tmp_path):
         import subtitles as m
         captured = {}

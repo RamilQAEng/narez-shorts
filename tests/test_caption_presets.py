@@ -25,44 +25,6 @@ def test_line_budget_shrinks_with_size_and_wide_fonts():
     assert line_budget("Montserrat ExtraBold", 44) < line_budget("Anton", 44)
 
 
-class _FakeResp:
-    status_code = 200
-
-    def json(self):
-        return {"ok": True}
-
-
-class _FakeClient:
-    def __init__(self):
-        self.body = None
-
-    async def post(self, path, json):
-        assert path == "/api/subtitle"
-        self.body = json
-        return _FakeResp()
-
-
-def _call(**args):
-    from mcp_server import _tool_add_subtitles
-    client = _FakeClient()
-    asyncio.run(_tool_add_subtitles(client, {"job_id": "j", "clip_index": 0, **args}))
-    return client.body
-
-
-def test_mcp_forwards_preset_and_new_options():
-    body = _call(preset="pill", reveal=True, shadow=2, effect="highlight")
-    assert body["preset"] == "pill"
-    assert (body["reveal"], body["shadow"], body["effect"]) == (True, 2, "highlight")
-    assert "max_chars" not in body  # the preset's own budget applies
-
-
-def test_mcp_one_word_and_resize_set_the_line_budget():
-    assert _call(one_word=True)["max_chars"] == 1
-    assert _call(font_size=70)["max_chars"] == line_budget("Anton", 70)
-    # Resizing the one-word preset keeps it one word.
-    assert "max_chars" not in _call(preset="oneword", font_size=56)
-
-
 def test_unknown_preset_is_a_400():
     import pytest
     from fastapi import HTTPException

@@ -32,7 +32,7 @@ Ingest (yt-dlp or upload) → transcription (word timestamps) → scene detectio
 - `clip_selection.py`, `layout_picker.py`, `reframe_v2.py`, `split_layout.py`, `screencast_layout.py`, `camera_inset.py`, `layout_ranges.py`: moment picking and layouts.
 - `subtitles.py` (SRT/ASS, burning), `hooks.py` (hook overlays), `brand_banner.py`, `editor.py`.
 - `projects.py`, `project_layout.py`: projects and their on-disk layout.
-- `yt_account.py`, `yt_clients.py`, `limits.py`: YouTube account budget, client list, limits.
+- `yt_account.py`, `yt_clients.py`: YouTube account budget and client list.
 - `dashboard/src/App.jsx`: main React component.
 
 ## Subsystem reference (read before touching)
