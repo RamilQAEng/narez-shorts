@@ -5,8 +5,7 @@ import {
     PanelLeft, PanelLeftClose, Film,
 } from 'lucide-react';
 import { getApiUrl, withParam } from '../config';
-import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
-import { useAuth } from '../contexts/AuthContext';
+import { apiFetch, apiJson } from '../lib/api';
 
 // Full-screen clip editor: shows WHICH source segments a clip was cut from,
 // lets the user trim/extend/split/reorder them (word-snapped), and re-renders
@@ -16,7 +15,7 @@ const MIN_SEGMENT_SECONDS = 0.5;
 const SNAP_WINDOW_SECONDS = 0.35;
 
 // Hiding the source is a working preference, not a per-clip one, so it sticks.
-const HIDE_SOURCE_KEY = 'openshorts_editor_hide_source';
+const HIDE_SOURCE_KEY = 'nares_editor_hide_source';
 
 // Words per memoised transcript slice. See TranscriptChunk for why this exists.
 const CHUNK_WORDS = 50;
@@ -96,7 +95,6 @@ function editorReducer(state, action) {
 }
 
 export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRerendered }) {
-    const { refreshMe } = useAuth();
     const [edl, setEdl] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [state, dispatch] = useReducer(editorReducer, { segments: [], selected: 0, past: [], future: [], pendingBase: null });
@@ -868,15 +866,8 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             dispatch({ type: 'init', segments: data.recipe.segments.map((s) => ({ ...s })) });
             setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
             onRerendered?.(clipIndex, data);
-            refreshMe();
         } catch (e) {
-            if (e instanceof QuotaError) {
-                refreshMe();
-                setRenderError(`not enough minutes left (needs ${e.minutesRequired ?? '?'}, ${e.minutesRemaining ?? 0} remaining)`);
-                openQuotaWall(e, 'clip_editor');
-            } else {
-                setRenderError(e.message || 're-render failed');
-            }
+            setRenderError(e.message || 'не удалось пересобрать клип');
         } finally {
             setRendering(false);
         }
@@ -1110,7 +1101,6 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                         <p className="readout">DURATION · {fmt(total)}</p>
                         <p className="readout mt-1">
                             {needsSourcePath ? 'PATH · FULL RE-FRAME' : 'PATH · FAST RECUT'}
-                            {edl.rerender_minutes > 0 && ` · ≈${Math.max(1, Math.ceil(total / 60))} MIN`}
                         </p>
                     </div>
                     {sourceAvailable && (
