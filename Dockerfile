@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
-COPY requirements.txt requirements-billing.txt requirements-cpu.lock requirements-gpu.lock ./
+COPY requirements.txt requirements-cpu.lock requirements-gpu.lock ./
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir pip==26.3
@@ -29,8 +29,7 @@ RUN if [ "$GPU" != "1" ]; then \
 # for CTranslate2, onnx-asr + onnxruntime-gpu for Parakeet; the NVIDIA runtime
 # injects the driver). pip check fails the build if a lock misses a dependency;
 # the --no-index pass fails it if requirements*.txt lists something the lock
-# does not have. The billing deps are installed always so one image serves
-# both modes; they are only imported when BILLING_ENABLED is set.
+# does not have.
 #
 # onnxruntime and onnxruntime-gpu are two distributions of ONE import package:
 # both write onnxruntime/capi/, and whichever pip unpacks last is the one that
@@ -48,7 +47,7 @@ RUN if [ "$GPU" = "1" ]; then LOCK=requirements-gpu.lock; else LOCK=requirements
       && python -c "import onnxruntime as o, sys; p = o.get_available_providers(); print('onnxruntime providers:', p); sys.exit('CUDAExecutionProvider' not in p)"; \
     fi \
  && pip check \
- && pip install --no-index --no-deps -q -r requirements.txt -r requirements-billing.txt
+ && pip install --no-index --no-deps -q -r requirements.txt
 
 # osrender (osrender/, Rust): renders a reframed clip in one pass on the GPU
 # (gpu_render.py). Only GPU builds compile it; the CPU image ships without it

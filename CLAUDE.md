@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OpenShorts is an AI-powered vertical video generator that turns long YouTube videos or local uploads into short 9:16 clips for TikTok, Instagram Reels and YouTube Shorts. Google Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`, overridable with `GEMINI_MODEL`) picks the viral moments and writes the titles. It ships as self-host (BYOK) and as a Cloud edition (`BILLING_ENABLED`, code under `cloud/`).
+OpenShorts is an AI-powered vertical video generator that turns long YouTube videos or local uploads into short 9:16 clips for TikTok, Instagram Reels and YouTube Shorts. Google Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`, overridable with `GEMINI_MODEL`) picks the viral moments and writes the titles. This distribution (НАРЕЗ) is self-host only: the Cloud edition's `cloud/` package was removed, `BILLING_ENABLED` is hard-wired to `False` in `app.py`, and clips are picked by the user's own agent in agent mode (`AGENT_CLIPS=1`, see `README.md` and `INSTALL_AGENT.md`). Billing-only code paths left in `app.py` and the dashboard are dead and are being removed.
 
 ## Development Commands
 
@@ -32,7 +32,7 @@ Ingest (yt-dlp or upload) → transcription (word timestamps) → scene detectio
 - `clip_selection.py`, `layout_picker.py`, `reframe_v2.py`, `split_layout.py`, `screencast_layout.py`, `camera_inset.py`: moment picking and layouts.
 - `editor.py` (Gemini FFmpeg effects), `hooks.py` (hook overlays), `subtitles.py` (SRT/ASS, burning), `translate.py` (ElevenLabs dubbing), `thumbnail.py`.
 - `mcp_server.py`, `mcp_stdio.py`: MCP over HTTP and stdio.
-- `cloud/`: auth, API keys, metering, billing, lifecycle emails, account erasure, autopilot, proxy ledger, alerts, queue watch.
+- `limits.py` (request size caps) and `queue_lanes.py` (single normal lane) replace what self-host used to import from the removed `cloud/`.
 - `dashboard/src/App.jsx`: main React component. `dashboard/vite-plugin-seo.js` + `dashboard/seo/`: build-time SEO pages, sitemap, llms.txt. `dashboard/seo/data.js`: single source of truth for pricing/pipeline/competitor facts.
 
 ## Subsystem reference (read before touching)

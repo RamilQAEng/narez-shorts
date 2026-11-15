@@ -128,7 +128,8 @@ for _stream in (sys.stdout, sys.stderr):
 # All paid-mode code lives in the optional `cloud/` package and is imported ONLY
 # when BILLING_ENABLED is set. With the flag off, the app behaves exactly as the
 # self-hosted BYOK app does today (no extra dependencies required).
-BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").lower() in ("1", "true", "yes")
+# The hosted edition (billing, accounts, quotas) lived in cloud/, which this distribution does not ship.
+BILLING_ENABLED = False
 # Self-host agent mode: main.py waits for clips.json written by the user's own agent, so cutting needs no LLM key.
 AGENT_CLIPS = not BILLING_ENABLED and os.environ.get("AGENT_CLIPS") == "1"
 
@@ -168,13 +169,12 @@ else:
         # No-op dependency in self-host mode: every request is anonymous / BYOK.
         return None
 
-# The free queue's saturation mode (lanes, newest first, brake). Plain policy
-# with no dependencies, importable with billing off; inert unless configured.
-from cloud import queue_mode as _queue_mode
+# One normal lane: the hosted edition's lanes and saturation mode are not shipped here.
+import queue_lanes as _queue_mode
 
 
 def _saturation_on() -> bool:
-    return BILLING_ENABLED and _queue_mode.enabled()
+    return False
 
 
 async def _user_from_request(request: Request):
@@ -384,7 +384,7 @@ def partial_offer(minutes_required: float, minutes_remaining: float) -> int:
     (the reservation is in whole minutes), and only when it is both worth
     clipping (``PARTIAL_MIN_MINUTES``) and actually shorter than the source.
     """
-    from cloud import config as _cfg  # plain constants; importable with billing off
+    import limits as _cfg
     offer = int(math.floor(max(0.0, float(minutes_remaining or 0))))
     if offer < _cfg.PARTIAL_MIN_MINUTES or offer >= minutes_required:
         return 0
@@ -407,7 +407,7 @@ def plan_partial_minutes(minutes_required: int, minutes_remaining: float, max_mi
         asked = float(max_minutes)
     except (TypeError, ValueError):
         return minutes_required, None
-    from cloud import config as _cfg
+    import limits as _cfg
     cap = int(math.floor(min(asked, max(0.0, float(minutes_remaining or 0)))))
     if minutes_required <= cap or cap < _cfg.PARTIAL_MIN_MINUTES:
         return minutes_required, None
@@ -428,7 +428,7 @@ def free_overflow(plan, minutes_required, minutes_remaining, max_minutes, proces
     Anything else (a paid plan, a source that fits, a client that already named
     its own cut) passes through untouched.
     """
-    from cloud import config as _cfg
+    import limits as _cfg
     remaining = max(0.0, float(minutes_remaining or 0))
     if plan != "free" or max_minutes is not None or minutes_required <= remaining:
         return None, max_minutes
@@ -8674,14 +8674,14 @@ def thumbnail_transcribe_minutes(source_minutes) -> int:
     """Minutes a Thumbnail Studio transcription costs: one per
     THUMBNAIL_SOURCE_MINUTES_PER_CHARGED minutes of source, never less than the
     flat TRANSCRIBE_MINUTES a typical video always cost."""
-    from cloud import config as _cfg  # plain constants; importable with billing off
+    import limits as _cfg
     per = max(1, int(_cfg.THUMBNAIL_SOURCE_MINUTES_PER_CHARGED))
     minutes = max(0.0, float(source_minutes or 0))
     return max(int(_cfg.TRANSCRIBE_MINUTES), int(math.ceil(minutes / per - 1e-9)))
 
 
 def _check_thumbnail_length(minutes):
-    from cloud import config as _cfg
+    import limits as _cfg
     cap = int(_cfg.THUMBNAIL_MAX_SOURCE_MINUTES)
     if cap > 0 and float(minutes) > cap + 0.5:
         raise HTTPException(status_code=413, detail=(
@@ -9019,8 +9019,8 @@ async def thumbnail_analyze(
 
 
 def _cloud_cfg():
-    """cloud.config: plain env-backed constants, importable with billing off."""
-    from cloud import config as _cfg
+    """Self-host request limits (limits.py)."""
+    import limits as _cfg
     return _cfg
 
 
